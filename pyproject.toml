@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+description = "A common framework to analyse scNMT-seq data."
+dynamic = ["version"]
+name = "linkapy"
+authors = [
+    {name = "Ward Deboutte", email = "w@rddeboutte.com"},
+]
+requires-python = ">= 3.10, < 3.13"
+dependencies = [
+    "anndata",
+    "scanpy"
+]
+[project.scripts]
+lp = "linkapy.main:main"
