@@ -19,3 +19,12 @@ dependencies = [
 ]
 [project.scripts]
 lp = "linkapy.main:main"
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest"
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme"
+]
