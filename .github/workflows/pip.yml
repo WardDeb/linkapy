@@ -1,0 +1,23 @@
+name: pip
+on: [push, pull_request]
+jobs:
+  pip_install:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: base
+        run: |
+          pip install .
+      - name: test
+        run: |
+          pip install .[dev]
+      - name: docs
+        run: |
+          pip install .[docs]
