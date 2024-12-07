@@ -15,7 +15,8 @@ dependencies = [
     "scanpy == 1.10.4",
     "scvi-tools == 1.2.0",
     "celltypist == 1.6.3",
-    "moscot == 0.3.5"
+    "moscot == 0.3.5",
+    "rich == 13.9.4" 
 ]
 [project.scripts]
 lp = "linkapy.main:main"
