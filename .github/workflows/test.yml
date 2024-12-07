@@ -1,7 +1,7 @@
 name: pip
 on: [push, pull_request]
 jobs:
-  pip_install:
+  pytests:
     runs-on: ubuntu-latest
     strategy:
       matrix:
