@@ -49,7 +49,23 @@ class lap:
             f"Found {len(self.allc_files)} meth and {len(self.rna_files)} rna files."
         )
 
-    def create_rnamatrix(self):
+    def _msg(self, msg, lvl='info'):
+        print(msg)
+        if lvl == 'info':
+            self.logger.info(msg)
+        elif lvl == 'debug':
+            self.logger.debug(msg)
+        elif lvl == 'warning':
+            self.logger.warning(msg)
+        else:
+            self.logger.error(msg)
+            sys.exit()
+
+    def create_matrices(self):
+        def read_meth(p):
+            # Do something for meth files.
+            return pd.DataFrame()
+
         def read_rna(p):
             a = pd.read_table(p, sep='\t', skiprows=1, header=0, index_col=0)
             a.columns = [_r.replace('filtered.', '').replace('.Aligned.sortedByCoord.Processed.out.bam', '') for _r in a.columns]
@@ -57,6 +73,8 @@ class lap:
             metadf = a[metacols]
             a.drop(columns=metacols, inplace=True)
             return (a, metadf)
+        
+        ## RNA
         # Two situations - one featureCounts.tsv file, or more in wich case we need to merge.
         if len(self.rna_files) == 1:
             rnadf, metadf = read_rna(self.rna_files[0])
@@ -75,20 +93,12 @@ class lap:
             self._msg("Error: RNA count matrix is empty.", lvl='error')
         # Assert that indices for matrix and metadata match.
         assert rnadf.index.equals(metadf.index), self._msg("Error: RNA count matrix and metadata index mismatch.", lvl='error')
+
+        ## Methylation
+        ## There are three files per sample, WCGN, HCHN and GCHN. We need only WCGN (methylation) == ACGN & TCGN, and GCHN (accessibility) == GCAN, GCCN, GCTN.
+        
               
         self._msg(
             f"Final RNA count matrix dimensions: {rnadf.shape}"
         )
         return(rnadf, metadf)
-
-    def _msg(self, msg, lvl='info'):
-        print(msg)
-        if lvl == 'info':
-            self.logger.info(msg)
-        elif lvl == 'debug':
-            self.logger.debug(msg)
-        elif lvl == 'warning':
-            self.logger.warning(msg)
-        else:
-            self.logger.error(msg)
-            sys.exit()

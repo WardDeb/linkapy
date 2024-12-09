@@ -16,7 +16,9 @@ dependencies = [
     "scvi-tools == 1.2.0",
     "celltypist == 1.6.3",
     "moscot == 0.3.5",
-    "rich == 13.9.4" 
+    "rich == 13.9.4",
+    "pyarrow == 18.1.0",
+    "muon == 0.1.7"
 ]
 [project.scripts]
 lp = "linkapy.main:main"
