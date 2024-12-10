@@ -8,7 +8,6 @@ import pandas as pd
 import gzip
 from concurrent.futures import ProcessPoolExecutor
 from itertools import chain
-import tempfile
 import numpy as np
 
 def get_regions(_f):
@@ -20,7 +19,7 @@ def get_regions(_f):
             regions.add(_rstr)
     return regions
 
-class lap:
+class ConstructMatrix:
     def __init__(self, methpath = './', rnapath = './', threads=10):
         # Initiate a log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -137,12 +136,28 @@ class lap:
         regions = set(chain.from_iterable(regions))
         regions = sorted(set(regions), key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
         self._msg(f"{len(regions)} positions found. Creating series for matrix.")
-        f_r_pairs = [(i, regions) for i in self.allc_acc_files]
         accdf = pd.DataFrame(index=regions)
         for _f in self.allc_acc_files:
             accdf = parse_allcool(_f, accdf)
-        accdf.to_hdf("acc_meth.h5", mode='w')
+        # Save df to pickle
+        accdf.to_pickle("acc.pkl")
+        self._msg(f"Accessibility methylation matrix created, dimensions: {accdf.shape}")
 
+        # Methylation data
+        self._msg(f"Parsing regions for methylation (with {self.threads} threads)")
+        with ProcessPoolExecutor(max_workers=self.threads) as exe:
+            regions = list(exe.map(get_regions, self.allc_meth_files))
+        regions = set(chain.from_iterable(regions))
+        regions = sorted(set(regions), key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
+        self._msg(f"{len(regions)} positions found. Creating series for matrix.")
+        methdf = pd.DataFrame(index=regions)
+        for _of in self.allc_meth_files:
+            methdf = parse_allcool(_of, methdf)
+        # Save df to pickle
+        methdf.to_pickle("meth.pkl")
+        self._msg(f"Methylation matrix created, dimensions: {methdf.shape}")
+        self.methdf = 'meth.parquet'
+        self.accdf = 'acc.parquet'
         self._msg(
             f"Final RNA count matrix dimensions: {rnadf.shape}"
         )
