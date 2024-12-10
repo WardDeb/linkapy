@@ -1,4 +1,4 @@
 from linkapy import lap as lp
 
-def test_lap_create():
-    _a = lp.lap("./", "./")
+def test_CreateMatrix():
+    _a = lp.ConstructMatrix("./", "./")
