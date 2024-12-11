@@ -19,7 +19,8 @@ dependencies = [
     "rich == 13.9.4",
     "pyarrow == 18.1.0",
     "muon == 0.1.7",
-    "tables == 3.10.1"
+    "tables == 3.10.1",
+    "polars == 1.17.1"
 ]
 [project.scripts]
 lp = "linkapy.main:main"
