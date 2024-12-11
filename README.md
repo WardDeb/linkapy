@@ -15,6 +15,7 @@ A framework that encompasses a number of techniques applicable to scNMT-seq anal
  - [ ] integrations
 
 ## meta-todo
- - [ ] readthedocs setup
+ - [x] readthedocs setup
  - [ ] API exposure
- - [ ] actions - lint, action
+ - [ ] CLI
+ - [x] actions - lint, action
