@@ -5,8 +5,6 @@ Linkapy
     :width: 400px
     :align: center
 
-    (Image generated using Microsoft copilot)
-
 Linkapy - a general framework to work with tri-modal sequencing data.
 
 .. toctree::
@@ -15,4 +13,4 @@ Linkapy - a general framework to work with tri-modal sequencing data.
 
    content/installation
    content/usage
-   content/api
+   content/API
