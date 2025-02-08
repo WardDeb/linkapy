@@ -23,8 +23,8 @@ This is done by initiating a Parse_scNMT class:
 
 Note that the paths will be searched recursively, and look for:
 
- - RNA : '*gene.tsv'
- - accessibility: '*WCGN*.allc.tsv.gz'
- - methylation: '*GCHN*.allc.tsv.gz'
+ - RNA : '\*gene.tsv'
+ - accessibility: '\*WCGN\*.allc.tsv.gz'
+ - methylation: '\*GCHN\*.allc.tsv.gz'
 
 Upon completion, the matrices will be saved in the specified output directory (opath), as parquet files.
