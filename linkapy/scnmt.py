@@ -8,19 +8,28 @@ import polars as pl
 import tempfile
 
 class Parse_scNMT:
-    def __init__(self, methpath = './', rnapath = './', project='scNMT', threads=10):
+    def __init__(self, methpath = './', rnapath = './', project='scNMT', opath=None, threads=10):
         # Initiate a log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         _fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        # Set opath
+        if opath:
+            self.opath = Path(opath)
+            self.opath.mkdir(parents=True, exist_ok=True)
+        else:
+            self.opath = Path.cwd()
+
         # Logfile
-        log_file = f"lap_Parse_SCNMT_{timestamp}_{uuid.uuid4().hex}.log"
+        log_file = Path(self.opath / f"lap_Parse_SCNMT_{timestamp}_{uuid.uuid4().hex}.log").name
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(log_file)
         file_handler = logging.FileHandler(log_file)
         # To file
         file_handler.setFormatter(_fmt)
         self.logger.addHandler(file_handler)
-        self.logger.propagate = False        
+        self.logger.propagate = False
+
+        self._msg("Output directory: " + str(self.opath))
 
         # Methylation data
         _m = Path(methpath)
@@ -38,6 +47,10 @@ class Parse_scNMT:
         self._glob_files()
         self.threads = threads
         self.project = project
+        self.accchroms = []
+        self.methchroms = []
+
+
 
     def _glob_files(self):
         # glob for allc.tsv.gz files
@@ -53,6 +66,8 @@ class Parse_scNMT:
 
     def _msg(self, msg, lvl='info'):
         print(msg)
+        # For logging sake, remove '-'*100 from the strings.
+        msg = msg.replace('-'*100, '')
         if lvl == 'info':
             self.logger.info(msg)
         elif lvl == 'debug':
@@ -64,7 +79,7 @@ class Parse_scNMT:
             sys.exit()
 
     def create_matrices(self, opath='./'):
-        opath = Path(opath)
+        opath = self.opath
         opath.mkdir(parents=True, exist_ok=True)
         self._msg("-"*100 + "\n" + "Parse_scNMT - Parse matrices" + "\n" + "-"*100)
         def read_rna(_f):
@@ -199,16 +214,13 @@ class Parse_scNMT:
         # There are three files per sample, WCGN, HCHN and GCHN. We need only WCGN (methylation) == ACGN & TCGN, and GCHN (accessibility) == GCAN, GCCN, GCTN.
         # There's probably a more efficient way to do this, though allcools implementation seems a bit filehandle / memory intensive to.
         
-        # Plug and play the chromosomes to chunks
-        # combine chunks
-
-        if not Path(opath / ('.' + self.project + '_accparquets.created')).exists():
-            self._msg("No accessibility flag found, Parsing accessibility files.")
+        if not Path(opath / (self.project + '_acc_df.parquet')).exists():
+            self._msg("No accessibility file found, Parsing accessibility files.")
             # Parse first file to get all chromosomes
-            chroms = parse_allcool(self.allc_acc_files[0], self.threads, chroms=True)
-            print(chroms)
+            self.accchroms = parse_allcool(self.allc_acc_files[0], self.threads, chroms=True)
+            self._msg(f"Found {len(self.accchroms)} chromosomes in accessibility files.")
             tmpfiles = []
-            for _chrom in chroms:
+            for _chrom in self.accchroms:
                 self._msg(f"Processing chromosome: {_chrom}")
                 accdfs = []
                 samples = []
@@ -222,7 +234,7 @@ class Parse_scNMT:
                     index="index",
                     columns="sample"
                 )
-                _tfile = tempfile.NamedTemporaryFile(delete=True)
+                _tfile = tempfile.NamedTemporaryFile(delete=False)
                 tmpfiles.append(_tfile.name)
                 accdf.write_parquet(_tfile, compression_level=9)
             
@@ -234,6 +246,54 @@ class Parse_scNMT:
                 opath / (self.project + '_acc_df.parquet'),
                 compression_level=9
             )
+            # Remove all the tmpfiles.
+            for _f in tmpfiles:
+                Path(_f).unlink()
+            Path(opath / ('.' + self.project + '_accparquets.created')).touch()
+            self._msg(f"Accessibility files written into {opath} 👍")
+        else:
+            self._msg(f"Accessibility file found in {opath} 👍")
+        
+        # Methylation
+        if not Path(opath / (self.project + '_meth_df.parquet')).exists():
+            self._msg("No methylation file found, Parsing methylation files.")
+            self.methchroms = parse_allcool(self.allc_meth_files[0], self.threads, chroms=True)
+            self._msg(f"Found {len(self.methchroms)} chromosomes in methylation files.")
+            tmpfiles = []
+            for _chrom in self.methchroms:
+                self._msg(f"Processing chromosome: {_chrom}")
+                methdfs = []
+                samples = []
+                for _f in self.allc_meth_files:
+                    lf, sample = parse_allcool(_f, self.threads, chrom=_chrom)
+                    methdfs.append(lf)
+                    samples.append(sample)
+                methdf = pl.concat(methdfs).collect()
+                methdf = methdf.pivot(
+                    values="accv",
+                    index="index",
+                    columns="sample"
+                )
+                _tfile = tempfile.NamedTemporaryFile(delete=False)
+                tmpfiles.append(_tfile.name)
+                methdf.write_parquet(_tfile, compression_level=9)
+            
+            # Merge all files
+            _dfs = [pl.scan_parquet(_f) for _f in tmpfiles]
+            _df_concat = pl.concat(_dfs)
+
+            _df_concat.sink_parquet(
+                opath / (self.project + '_meth_df.parquet'),
+                compression_level=9
+            )
+            # Remove all the tmpfiles.
+            for _f in tmpfiles:
+                Path(_f).unlink()
+            self._msg(f"Methylation file written into {opath} 👍")
+        else:
+            self._msg(f"Methylation file found in {opath} 👍")
+        
+
 
             # Per chromosome, parse and collapse.
             #self._msg("Parsing accessibility files.")

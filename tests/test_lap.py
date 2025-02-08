@@ -1,4 +1,4 @@
-from linkapy import lap as lp
+from linkapy.scnmt import Parse_scNMT
 
-def test_CreateMatrix():
-    _a = lp.ConstructMatrix("./", "./")
+def test_Parse():
+    _a = Parse_scNMT("./", "./")
