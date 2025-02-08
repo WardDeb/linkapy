@@ -91,7 +91,7 @@ class Parse_scNMT:
             return (metadf, cdf.lazy())
 
         def parse_allcool(_f, threads, chroms=False, chrom=None):
-            if chroms == True:
+            if chroms:
                 a = pl.read_csv(
                     _f,
                     has_header=False,
