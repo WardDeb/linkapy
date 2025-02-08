@@ -21,3 +21,7 @@ jobs:
       - name: docs
         run: |
           pip install .[docs]
+      - name: build
+        run: |
+          pip install .[build]
+          python -m build

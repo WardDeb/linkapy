@@ -33,3 +33,6 @@ docs = [
     "sphinx",
     "sphinx-rtd-theme"
 ]
+build = [
+    "build"
+]
