@@ -1,7 +1,7 @@
-name: pip
+name: installation
 on: [push, pull_request]
 jobs:
-  pip_install:
+  pip_install_linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -21,7 +21,31 @@ jobs:
       - name: docs
         run: |
           pip install .[docs]
-      - name: build
+  pip_install_macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: base
         run: |
-          pip install .[build]
-          python -m build
+          pip install .
+  pip_install_windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: base
+        run: |
+          pip install .
