@@ -1,7 +1,7 @@
 from importlib.metadata import version as importlibversion
 
 project = 'linkapy'
-author = 'wardDeb'
+author = 'WardDeb'
 version = importlibversion("linkapy")
 release = importlibversion("linkapy")
 
