@@ -1,6 +1,6 @@
 from pathlib import Path
 import sys
-from rich import print, inspect
+from rich import print
 import logging
 from datetime import datetime
 import uuid
