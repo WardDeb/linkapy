@@ -376,7 +376,7 @@ class Parse_scNMT:
                     # Fix order.
                     methdf = methdf.select([_s.name.split('.')[0] for _s in self.allc_meth_files])
                     # Assert the number of columns match
-                    assert len(accdf.columns) == len(self.allc_meth_files)
+                    assert len(methdf.columns) == len(self.allc_meth_files)
                     _tfile = tempfile.NamedTemporaryFile(delete=False)
                     tmpfiles.append(_tfile.name)
                     methdf.write_ipc(_tfile, compression='zstd')
