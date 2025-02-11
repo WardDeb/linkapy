@@ -1,6 +1,13 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = [
+    "maturin>=1.0,<2.0"
+]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "python"
+module-name = "linkapy.linkars"
+bindings = "pyo3"
 
 [project]
 description = "A common framework to analyse scNMT-seq data."
@@ -22,8 +29,6 @@ dependencies = [
     "tables == 3.10.1",
     "polars == 1.17.1"
 ]
-[project.scripts]
-lp = "linkapy.main:main"
 [project.optional-dependencies]
 dev = [
     "ruff",

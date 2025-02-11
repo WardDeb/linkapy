@@ -19,3 +19,6 @@ A framework that encompasses a number of techniques applicable to scNMT-seq anal
  - [ ] API exposure
  - [ ] CLI
  - [x] actions - lint, action
+ - [ ] testdata
+ - [ ] test - parse
+ - [ ] test - anndata
