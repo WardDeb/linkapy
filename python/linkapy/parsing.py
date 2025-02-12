@@ -8,8 +8,23 @@ import polars as pl
 import pandas as pd
 import numpy as np
 import anndata
-from scipy.sparse import csr_matrix
+import scipy as sp
 from linkapy.linkars import parse_cools
+import mudata as md
+
+def _msg(logger, msg, lvl='info'):
+    print(msg)
+    # For logging sake, remove '-'*100 from the strings.
+    msg = msg.replace('-'*100, '')
+    if lvl == 'info':
+        logger.info(msg)
+    elif lvl == 'debug':
+        logger.debug(msg)
+    elif lvl == 'warning':
+        logger.warning(msg)
+    else:
+        logger.error(msg)
+        sys.exit()
 
 class Parse_scNMT:
     """
@@ -19,7 +34,7 @@ class Parse_scNMT:
     There are two required arguments (methpath and rnapath).
     Note that at least one region should be provided (genes, enhancers, CGI, proms, repeats) or the chromsizes file (for bins).
 
-    :param str methpath: The path to the methylation directory (will be searched recursively!). Searches allcool files with *WCGN*allc.tsv.gz and *GCHN*.allc.tsv.gz for accessibility and methylation files, respectively. (required)
+    :param str methpath: The path to the methylation directory (will be searched recursively!). Searches allcool files with *WCGN*allc.tsv.gz and *GCHN*.allc.tsv.gz for methylation and accessibility files, respectively. (required)
     :param str rnapath: The path to the RNA output directory (will be searched recursively!). For now looks for *gene.tsv files (i.e. featureCounts output). Can handle single or multiple files, will be combined. (required)
     :param str project: Name of the project. Defaults to 'scNMT'. Generated matrices will carry the project in their name. (optional)  
     :param str opath: Name of the output directory to store matrices in. Defaults to None, which is the currect working directory. (optional)
@@ -44,27 +59,27 @@ class Parse_scNMT:
             self.opath = Path.cwd()
 
         # Logfile
-        log_file = Path(self.opath / f"lap_Parse_SCNMT_{timestamp}_{uuid.uuid4().hex}.log").name
+        log_file = Path(self.opath / f"lap_Parse_SCNMT_{timestamp}_{uuid.uuid4().hex}.log")
         logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(log_file)
+        self.logger = logging.getLogger(str(log_file))
         file_handler = logging.FileHandler(log_file)
         # To file
         file_handler.setFormatter(_fmt)
         self.logger.addHandler(file_handler)
         self.logger.propagate = False
 
-        self._msg("Output directory: " + str(self.opath))
+        _msg(self.logger, "Output directory: " + str(self.opath))
 
         # Methylation data
         _m = Path(methpath)
         if not _m.exists():
-            self._msg(f"Error: {methpath} does not exist", lvl='error')
+            _msg(self.logger, f"Error: {methpath} does not exist", lvl='error')
         self.methpath = Path(methpath)
 
         # RNA data
         _r = Path(rnapath)
         if not _r.exists():
-            self._msg(f"Error: {rnapath} does not exist", lvl='error')
+            _msg(self.logger, f"Error: {rnapath} does not exist", lvl='error')
         self.rnapath = Path(rnapath)
 
         # Parse paths
@@ -73,6 +88,7 @@ class Parse_scNMT:
         self.project = project
 
         # Regions
+        self.chromsizes = chromsizes
         self.regions = []
         self.regionlabels = []
         if genes:
@@ -95,29 +111,15 @@ class Parse_scNMT:
         
     def _glob_files(self):
         # glob for allc.tsv.gz files
-        self._msg("-"*100 + "\n" + "Parse_scNMT - file globber" + "\n" + "-"*100)
-        self._msg(f"Searching file paths: methylation = [green]{self.methpath}[/green] rna = [green]{self.rnapath}[/green].")
-        self.allc_acc_files = list(self.methpath.rglob("*WCGN*.allc.tsv.gz"))
-        self.allc_meth_files = list(self.methpath.rglob("*GCHN*.allc.tsv.gz"))
+        _msg(self.logger, "-"*100 + "\n" + "Parse_scNMT - file globber" + "\n" + "-"*100)
+        _msg(self.logger, f"Searching file paths: methylation = [green]{self.methpath}[/green] rna = [green]{self.rnapath}[/green].")
+        self.allc_acc_files = list(self.methpath.rglob("*GCHN*.allc.tsv.gz"))
+        self.allc_meth_files = list(self.methpath.rglob("*WCGN*.allc.tsv.gz"))
         assert len(self.allc_acc_files) == len(self.allc_meth_files)
         self.rna_files = list(self.rnapath.rglob("*gene.tsv"))
-        self._msg(f"Found {len(self.allc_acc_files)} accessibility files.")
-        self._msg(f"Found {len(self.allc_meth_files)} methylation files.")
-        self._msg(f"Found {len(self.rna_files)} RNA file(s).")
-
-    def _msg(self, msg, lvl='info'):
-        print(msg)
-        # For logging sake, remove '-'*100 from the strings.
-        msg = msg.replace('-'*100, '')
-        if lvl == 'info':
-            self.logger.info(msg)
-        elif lvl == 'debug':
-            self.logger.debug(msg)
-        elif lvl == 'warning':
-            self.logger.warning(msg)
-        else:
-            self.logger.error(msg)
-            sys.exit()
+        _msg(self.logger, f"Found {len(self.allc_acc_files)} accessibility files.")
+        _msg(self.logger, f"Found {len(self.allc_meth_files)} methylation files.")
+        _msg(self.logger, f"Found {len(self.rna_files)} RNA file(s).")
 
     def _read_rna(self, _f):
         a = pl.read_csv(_f, separator='\t', skip_rows=1, has_header=True)
@@ -145,10 +147,10 @@ class Parse_scNMT:
     def create_matrices(self):
         opath = self.opath
         opath.mkdir(parents=True, exist_ok=True)
-        self._msg("-"*100 + "\n" + "Parse_scNMT - Parse matrices" + "\n" + "-"*100)
+        _msg(self.logger, "-"*100 + "\n" + "Parse_scNMT - Parse matrices" + "\n" + "-"*100)
 
         ## RNA
-        self._msg("Parsing RNA files.")
+        _msg(self.logger, "Parsing RNA files.")
         if not Path(opath / (self.project + '_rnadf.arrow')).exists() and not Path(opath / (self.project + '_rnameta.arrow')).exists():    
             # Two situations - one featureCounts.tsv file, or more in wich case we need to merge.
             if len(self.rna_files) == 1:
@@ -170,14 +172,15 @@ class Parse_scNMT:
                 rnadf = rnadf.collect()
                 rnadf.write_ipc(opath / (self.project + '_rnadf.arrow'), compression='zstd')
                 metadf.write_ipc(opath / (self.project + '_rnameta.arrow'), compression='zstd')
-            self._msg(f"RNA files written into {opath} 👍")
+            _msg(self.logger, f"RNA files written into {opath} 👍")
         else:
-            self._msg(f"RNA files found at {opath} 👍")
+            _msg(self.logger, f"RNA files found at {opath} 👍")
 
         # Accessibility
         accbase = Path(opath / (self.project + '.acc'))
         accfile = Path(opath / (self.project + '.acc.meth.mtx'))
         metafile = Path(opath / (self.project + '.acc.meta.tsv'))
+        cellfile = Path(opath / (self.project + '.acc.cell.tsv'))
         if not accfile.exists():
             parse_cools(
                 [str(i) for i in self.allc_acc_files],
@@ -185,16 +188,18 @@ class Parse_scNMT:
                 self.regionlabels,
                 self.threads,
                 str(accbase),
-                str(metafile)
+                str(metafile),
+                str(cellfile)
             )
-            self._msg(f"Acc files written into {opath} 👍")
+            _msg(self.logger, f"Acc files written into {opath} 👍")
         else:
-            self._msg(f"Acc files found at {opath} 👍")
+            _msg(self.logger, f"Acc files found at {opath} 👍")
         
         # Methylation
         methbase = Path(opath / (self.project + '.meth'))
         methfile = Path(opath / (self.project + '.meth.meth.mtx'))
         metafile = Path(opath / (self.project + '.meth.meta.tsv'))
+        cellfile = Path(opath / (self.project + '.meth.cell.tsv'))
         if not methfile.exists():
             parse_cools(
                 [str(i) for i in self.allc_meth_files],
@@ -202,81 +207,151 @@ class Parse_scNMT:
                 self.regionlabels,
                 self.threads,
                 str(methbase),
-                str(metafile)
+                str(metafile),
+                str(cellfile)
             )
-            self._msg(f"Meth files written into {opath} 👍")
+            _msg(self.logger, f"Meth files written into {opath} 👍")
         else:
-            self._msg(f"Meth files found at {opath} 👍")
+            _msg(self.logger, f"Meth files found at {opath} 👍")
 
 
 class Parse_matrices:
-    def __init__(self, dir):
-        self.matrixdir = Path(dir)
+    """
+    Parses matrices created previously (with Parse_scNMT) and creates a muon object (written to disk).
+    This is then the starting point to downstream analysis.
+
+    :param str matrixdir: Directory where the matrices can be found. (required)
+    :param str project: Project name, similar to the one provided in the Parse_scNMT part. Defaults to 'scNMT' (optional)
+    :param str ofile: Name of the output file, defaults to matrixdir / project.h5. (optional)
+    """
+
+    def __init__(self, matrixdir, project='scNMT', opath=None):
+        self.matrixdir = Path(matrixdir)
+        self.project = project
+        if not opath:
+            self.opath = self.matrixdir
+        else:
+            self.opath = Path(opath)
+        self.opath.mkdir(parents=True, exist_ok=True)
+        # Initiate a log
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        _fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+        # Logfile
+        log_file = Path(self.opath / f"lap_Parse_matrices_{timestamp}_{uuid.uuid4().hex}.log")
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(str(log_file))
+        file_handler = logging.FileHandler(log_file)
+        # To file
+        file_handler.setFormatter(_fmt)
+        self.logger.addHandler(file_handler)
+        self.logger.propagate = False
+
+        _msg(self.logger, "Output directory: " + str(self.opath))
         self._assert_files()
 
     def _assert_files(self):
-        self.rna = self.matrixdir / 'scNMT_rnadf.arrow'
-        self.rnameta = self.matrixdir / 'scNMT_rnameta.arrow'
-        self.acc = self.matrixdir / 'scNMT_acc_df.arrow'
-        self.meth = self.matrixdir / 'scNMT_meth_df.arrow'
+        self.rna = self.matrixdir / (self.project + '_rnadf.arrow')
+        self.rnameta = self.matrixdir / (self.project + '_rnameta.arrow')
+        # Accessibility part
+        self.acc = {
+            'cov': self.matrixdir / (self.project + '.acc.cov.mtx'),
+            'meth': self.matrixdir / (self.project + '.acc.meth.mtx'),
+            'site': self.matrixdir / (self.project + '.acc.site.mtx'),
+            'cell': self.matrixdir / (self.project + '.acc.cell.tsv'),
+            'reg': self.matrixdir / (self.project + '.acc.meta.tsv')
+        }
+        self.meth = {
+            'cov': self.matrixdir / (self.project + '.meth.cov.mtx'),
+            'meth': self.matrixdir / (self.project + '.meth.meth.mtx'),
+            'site': self.matrixdir / (self.project + '.meth.site.mtx'),
+            'cell': self.matrixdir / (self.project + '.meth.cell.tsv'),
+            'reg': self.matrixdir / (self.project + '.meth.meta.tsv')
+        }
 
         assert self.rna.exists()
         assert self.rnameta.exists()
-        assert self.acc.exists()
-        assert self.meth.exists()
+        for _f in self.acc:
+            assert self.acc[_f].exists()
+        for _f in self.meth:
+            assert self.meth[_f].exists()
 
 
-    def create_muon(self, adir):
-        adir = Path(adir)
-        adir.mkdir(parents=True, exist_ok=True)
-        # RNA part.
+    def create_mudata(self):
+        # Some settings.
+        np.seterr(divide='ignore', invalid='ignore')
+        md.set_options(pull_on_update=False)
+
+        _msg(self.logger, "-"*100 + "\n" + "Parse_matrices - create_mudata" + "\n" + "-"*100)
+        _msg(self.logger, f"Parsing RNA matrices")
         rnadf = pl.read_ipc(self.rna, memory_map=False).to_pandas()
         rnameta = pl.read_ipc(self.rnameta, memory_map=False).to_pandas()
         rnameta.index = rnameta['Geneid']
         del rnameta['Geneid']
         rna_adata = anndata.AnnData(
-            X=csr_matrix(rnadf.values),
-            var=pd.DataFrame(index=list(rnadf.columns)),
-            obs=rnameta
+            X=sp.sparse.csr_matrix(rnadf.values.T),
+            obs=pd.DataFrame(index= [i.replace('_RNA-seq', '') for i in rnadf.columns]),
+            var=rnameta
         )
-        rna_adata.write_h5ad(
-            Path(adir) / 'RNA.h5'
+        _msg(self.logger, f"Parsing Accessibility matrices")
+        _m = sp.io.mmread(self.acc['meth']).todense()
+        _c = sp.io.mmread(self.acc['cov']).todense()
+        X = np.zeros_like(_m, dtype=float)
+        X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
+        X = sp.sparse.csr_matrix(X)
+        _obs = pl.read_csv(self.acc['cell'], separator='\t', has_header=False).to_pandas()
+        _obs = pd.DataFrame(index= [Path(i).name.split('.')[0].replace('_NOMe-seq', '') for i in _obs['column_1'].to_list()] )
+        _var = pl.read_csv(self.acc['reg'], separator='\t', has_header=True).to_pandas()
+        # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
+        _var = _var.drop_duplicates(subset='name', keep='first')
+        X = X[:, _var.index]
+        _var = _var.set_index('name')
+        _msg(self.logger, f"Accessibility matrix: shape={X.shape}, max={X.max()}, min={X.min()}, mean={X.mean()} 👍")
+        acc_adata = anndata.AnnData(
+            X=X,
+            obs=_obs,
+            var=_var
         )
 
-        # Acc part.      
-        _samples = list(pl.read_ipc_schema(self.acc).keys())[1::]
-        _var = pd.DataFrame(index=_samples)
-        X = np.ma.masked_invalid(pl.read_ipc(self.acc, memory_map=False, columns=_samples).to_pandas().values)
-        print(X)
-        #_obs = pl.read_ipc(self.acc, memory_map=False, columns=['index']).to_pandas()['index'].str.split('_', expand=True)
-        #_obs.columns = ['chrom', 'pos', 'strand', 'context']
-        #acc_adata = anndata.AnnData(
-        #    X=X,
-        #    var=_var,
-        #    obs=_obs
-        #)
-        #acc_adata.write_h5ad(
-        #    Path(adir) / 'ACC.h5'
-        #)
-        # # Meth part.
-        # _samples = list(pl.read_ipc_schema(self.meth).keys())[1::]
-        # _var = pd.DataFrame(index=_samples)
-        # X = np.ma.masked_invalid(pl.read_ipc(self.meth, memory_map=False, columns=_samples).to_pandas().values)
-        # _obs = pl.read_ipc(self.meth, memory_map=False, columns=['index']).to_pandas()['index'].str.split('_', expand=True)
-        # _obs.columns = ['chrom', 'pos', 'strand', 'context']
-        # meth_accdata = anndata.AnnData(
-        #     X=X,
-        #     var=_var,
-        #     obs=_obs
-        # )
-        # meth_accdata.write_h5ad(
-        #     Path(adir) / 'METH.h5'
-        # )
-        
-
-        
-        #mameth = np.ma.masked_invalid()
-        #print(mameth.values)
-        #_methsp = csr_matrix(methdf.values)
-        #print(_methsp)
-        
+        _msg(self.logger, f"Parsing Methylation matrices")
+        _m = sp.io.mmread(self.meth['meth']).todense()
+        _c = sp.io.mmread(self.meth['cov']).todense()
+        X = np.zeros_like(_m, dtype=float)
+        X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
+        X = sp.sparse.csr_matrix(X)
+        _obs = pl.read_csv(self.meth['cell'], separator='\t', has_header=False).to_pandas()
+        _obs = pd.DataFrame(index= [Path(i).name.split('.')[0].replace('_NOMe-seq', '') for i in _obs['column_1'].to_list()] )
+        _var = pl.read_csv(self.meth['reg'], separator='\t', has_header=True).to_pandas()
+                # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
+        _var = _var.drop_duplicates(subset='name', keep='first')
+        X = X[:, _var.index]
+        _var = _var.set_index('name')
+        _msg(self.logger, f"Methylation matrix: shape={X.shape}, max={X.max()}, min={X.min()}, mean={X.mean()} 👍")
+        meth_adata = anndata.AnnData(
+            X=X,
+            obs=_obs,
+            var=_var
+        )
+        # muData
+        _msg(self.logger, f"Creating muData object.")
+        # Take intersection of all obs
+        fincells = list(
+            set(rna_adata.obs_names) & set(acc_adata.obs_names) & set(meth_adata.obs_names)
+        )
+        _msg(self.logger, f"Creating object with {len(fincells)} observations.")
+        rna_adata = rna_adata[rna_adata.obs_names.isin(fincells)].copy()
+        acc_adata = acc_adata[acc_adata.obs_names.isin(fincells)].copy()
+        meth_adata = meth_adata[meth_adata.obs_names.isin(fincells)].copy()
+        # Assert variables in acc / meth are equal
+        assert acc_adata.var.index.equals(meth_adata.var.index)
+        _mu = md.MuData(
+            {
+                "RNA": rna_adata,
+                "ACC": acc_adata,
+                "METH": meth_adata
+            }
+        )
+        # Write to disk.
+        _of = self.opath / f"{self.project}.h5mu"
+        _mu.write(_of)
+        _msg(self.logger, f"mudata object written to {_of}")

@@ -16,7 +16,8 @@ pub fn parse_cools(
     _regionlabels: Py<PyList>,
     threads: usize,
     obase: &str,
-    oregionfile: &str
+    oregionfile: &str,
+    ocellfile: &str,
 ) -> PyResult<()> {
     let mut coolfiles: Vec<String> = Vec::new();
     let mut regions: Vec<String> = Vec::new();
@@ -80,6 +81,10 @@ pub fn parse_cools(
         writeln!(ofile, "chrom\tstart\tend\tname\tclass").unwrap();
         for region in parsed_regions {
             writeln!(ofile, "{}\t{}\t{}\t{}\t{}", region.chrom, region.start[0], *region.end.last().unwrap(), region.name, region.class).unwrap();
+        }
+        let mut ofile = File::create(ocellfile).unwrap();
+        for coolfile in coolfiles {
+            writeln!(ofile, "{}", coolfile).unwrap();
         }
     }
     Ok(())
