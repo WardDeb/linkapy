@@ -13,3 +13,4 @@ source_suffix = '.rst'
 
 html_theme = 'sphinx_rtd_theme'
 autoapi_dirs = ['../python/linkapy']
+autoapi_ignore = ["**/_*"]
