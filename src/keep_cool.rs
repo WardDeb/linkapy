@@ -15,7 +15,7 @@ pub fn parse_cools(
     _regions: Py<PyList>,
     _regionlabels: Py<PyList>,
     threads: usize,
-    ofile: &str,
+    obase: &str,
     oregionfile: &str
 ) -> PyResult<()> {
     let mut coolfiles: Vec<String> = Vec::new();
@@ -49,31 +49,32 @@ pub fn parse_cools(
 
     {
         // regions.
-        let regvals: Vec<Vec<f32>> = pool.install(|| {
+        let regvals: Vec<Vec<(u32, u32, u32)>> = pool.install(|| {
             coolfiles.par_iter().map(|coolfile| {
-                println!("Parsing {}.", coolfile);
                 let coolregions = parse_cool(coolfile);
-                parsed_regions.iter().map(|region| {
-                    let (meth_sum, total_sum) = coolregions
+                parsed_regions.par_iter().map(|region| {
+                    let (meth_sum, total_sum , sites) = coolregions
                         .iter()
                         .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
-                        .fold((0, 0), |(meth_acc, total_acc), x| {
-                            (meth_acc + x.meth, total_acc + x.total)
+                        .fold((0, 0, 0 as u32), |(meth_acc, total_acc, sites), x| {
+                            (meth_acc + x.meth, total_acc + x.total, sites + 1)
                         });
-                    if total_sum == 0 {
-                        0.0
-                    } else {
-                        meth_sum as f32 / total_sum as f32
-                    }
+                    (meth_sum, total_sum, sites)
                 })
             .collect()
             })
         .collect()
         });
-        let regvals = vec_to_sparse(regvals);
+        let (methm, covm, sitem) = tupvec_to_sparse(regvals);
         println!("Finished parsing allcool files.");
-        write_matrix_market(ofile, &regvals).unwrap();
-        println!("Matrix written to {}.", ofile);
+        // Create three outfiles from obase
+        let ometh = format!("{}.meth.mtx", obase);
+        let ocov = format!("{}.cov.mtx", obase);
+        let osite = format!("{}.site.mtx", obase);
+        write_matrix_market(ometh, &methm).unwrap();
+        write_matrix_market(ocov, &covm).unwrap();
+        write_matrix_market(osite, &sitem).unwrap();
+        println!("Matrices written.");
         println!("Writing metadata to {}.", oregionfile);
         let mut ofile = File::create(oregionfile).unwrap();
         writeln!(ofile, "chrom\tstart\tend\tname\tclass").unwrap();
@@ -84,19 +85,44 @@ pub fn parse_cools(
     Ok(())
 }
 
-fn vec_to_sparse(vec: Vec<Vec<f32>>) -> CsMat<f32> {
-    let rows = vec[0].len();
-    let cols = vec.len();
-    let mut mat = TriMat::new((rows, cols));
-    for (colix, col) in vec.into_iter().enumerate() {
-        for (rowix, val) in col.into_iter().enumerate() {
-            if val != 0.0 {
-                mat.add_triplet(rowix, colix, val);
+fn tupvec_to_sparse(dense: Vec<Vec<(u32, u32, u32)>>) -> (CsMat<u32>, CsMat<u32>, CsMat<u32>) {
+    let max_row = dense.len();
+    let max_col = dense.iter().map(|row| row.len()).max().unwrap_or(0);
+
+    let mut mat1 = TriMat::new((max_row, max_col));
+    let mut mat2 = TriMat::new((max_row, max_col));
+    let mut mat3 = TriMat::new((max_row, max_col));
+
+    for (i, row) in dense.iter().enumerate() {
+        for (j, &(v1, v2, v3)) in row.iter().enumerate() {
+            if v1 != 0 {
+                mat1.add_triplet(i, j, v1);
+            }
+            if v2 != 0 {
+                mat2.add_triplet(i, j, v2);
+            }
+            if v3 != 0 {
+                mat3.add_triplet(i, j, v3);
             }
         }
     }
-    mat.to_csr()
+    (mat1.to_csr(), mat2.to_csr(), mat3.to_csr())
 }
+
+
+// fn vec_to_sparse(vec: Vec<Vec<f32>>) -> CsMat<f32> {
+//     let rows = vec[0].len();
+//     let cols = vec.len();
+//     let mut mat = TriMat::new((rows, cols));
+//     for (colix, col) in vec.into_iter().enumerate() {
+//         for (rowix, val) in col.into_iter().enumerate() {
+//             if val != 0.0 {
+//                 mat.add_triplet(rowix, colix, val);
+//             }
+//         }
+//     }
+//     mat.to_csr()
+// }
 
 fn parse_cool(_f: &str) -> Vec<CoolRegion> {
     let mut coolregions: Vec<CoolRegion> = Vec::new();

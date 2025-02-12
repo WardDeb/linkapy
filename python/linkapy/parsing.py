@@ -154,7 +154,8 @@ class Parse_scNMT:
             self._msg(f"RNA files found at {opath} 👍")
 
         # Accessibility
-        accfile = Path(opath / (self.project + 'acc.mtx'))
+        accbase = Path(opath / (self.project + 'acc'))
+        accfile = Path(opath / (self.project + 'acc_meth.mtx'))
         metafile = Path(opath / (self.project + 'acc_meta.tsv'))
         if not accfile.exists():
             parse_cools(
@@ -165,6 +166,9 @@ class Parse_scNMT:
                 str(accfile),
                 str(metafile)
             )
+            self._msg(f"Acc files written into {opath} 👍")
+        else:
+            self._msg(f"Acc files found at {opath} 👍")
         
         # Methylation
         methfile = Path(opath / (self.project + 'meth.mtx'))
@@ -178,6 +182,9 @@ class Parse_scNMT:
                 str(methfile),
                 str(metafile)
             )
+            self._msg(f"Meth files written into {opath} 👍")
+        else:
+            self._msg(f"Meth files found at {opath} 👍")
 
 
 class Parse_matrices:
