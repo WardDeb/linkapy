@@ -283,7 +283,7 @@ class Parse_matrices:
         md.set_options(pull_on_update=False)
 
         _msg(self.logger, "-"*100 + "\n" + "Parse_matrices - create_mudata" + "\n" + "-"*100)
-        _msg(self.logger, f"Parsing RNA matrices")
+        _msg(self.logger, "Parsing RNA matrices")
         rnadf = pl.read_ipc(self.rna, memory_map=False).to_pandas()
         rnameta = pl.read_ipc(self.rnameta, memory_map=False).to_pandas()
         rnameta.index = rnameta['Geneid']
@@ -293,7 +293,7 @@ class Parse_matrices:
             obs=pd.DataFrame(index= [i.replace('_RNA-seq', '') for i in rnadf.columns]),
             var=rnameta
         )
-        _msg(self.logger, f"Parsing Accessibility matrices")
+        _msg(self.logger, "Parsing Accessibility matrices")
         _m = sp.io.mmread(self.acc['meth']).todense()
         _c = sp.io.mmread(self.acc['cov']).todense()
         X = np.zeros_like(_m, dtype=float)
@@ -313,7 +313,7 @@ class Parse_matrices:
             var=_var
         )
 
-        _msg(self.logger, f"Parsing Methylation matrices")
+        _msg(self.logger, "Parsing Methylation matrices")
         _m = sp.io.mmread(self.meth['meth']).todense()
         _c = sp.io.mmread(self.meth['cov']).todense()
         X = np.zeros_like(_m, dtype=float)
@@ -333,7 +333,7 @@ class Parse_matrices:
             var=_var
         )
         # muData
-        _msg(self.logger, f"Creating muData object.")
+        _msg(self.logger, "Creating muData object.")
         # Take intersection of all obs
         fincells = list(
             set(rna_adata.obs_names) & set(acc_adata.obs_names) & set(meth_adata.obs_names)
