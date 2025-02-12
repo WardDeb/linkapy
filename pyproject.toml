@@ -36,7 +36,8 @@ dev = [
 ]
 docs = [
     "sphinx",
-    "sphinx-rtd-theme"
+    "sphinx-rtd-theme",
+    "sphinx-autoapi"
 ]
 build = [
     "build"

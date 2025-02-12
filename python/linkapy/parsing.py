@@ -154,16 +154,16 @@ class Parse_scNMT:
             self._msg(f"RNA files found at {opath} 👍")
 
         # Accessibility
-        accbase = Path(opath / (self.project + 'acc'))
-        accfile = Path(opath / (self.project + 'acc_meth.mtx'))
-        metafile = Path(opath / (self.project + 'acc_meta.tsv'))
+        accbase = Path(opath / (self.project + '.acc'))
+        accfile = Path(opath / (self.project + '.acc.meth.mtx'))
+        metafile = Path(opath / (self.project + '.acc.meta.tsv'))
         if not accfile.exists():
             parse_cools(
                 [str(i) for i in self.allc_acc_files],
                 self.regions,
                 self.regionlabels,
                 self.threads,
-                str(accfile),
+                str(accbase),
                 str(metafile)
             )
             self._msg(f"Acc files written into {opath} 👍")
@@ -171,15 +171,16 @@ class Parse_scNMT:
             self._msg(f"Acc files found at {opath} 👍")
         
         # Methylation
-        methfile = Path(opath / (self.project + 'meth.mtx'))
-        metafile = Path(opath / (self.project + 'meth_meta.tsv'))
+        methbase = Path(opath / (self.project + '.meth'))
+        methfile = Path(opath / (self.project + '.meth.meth.mtx'))
+        metafile = Path(opath / (self.project + '.meth.meta.tsv'))
         if not methfile.exists():
             parse_cools(
                 [str(i) for i in self.allc_meth_files],
                 self.regions,
                 self.regionlabels,
                 self.threads,
-                str(methfile),
+                str(methbase),
                 str(metafile)
             )
             self._msg(f"Meth files written into {opath} 👍")
