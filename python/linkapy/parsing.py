@@ -29,8 +29,8 @@ def _msg(logger, msg, lvl='info'):
 class Parse_scNMT:
     """
     Parse_scNMT mainly functions to create matrices (arrow format for RNA, mtx format for accessibility / methylation)
-    from directories containing analyzed scNMT-seq data. Theoretically this could be analyzed in anyway, but the class is written with the scNMT workflow
-    from the Thienpont lab (KU Leuven) into account.
+    from directories containing analyzed scNMT-seq data. Theoretically this could be any type of multi-modal (read: RNA / methyatlion) data, but the class is written with the scNMT workflow
+    from the Thienpont lab (KU Leuven) in mind.
     There are two required arguments (methpath and rnapath).
     Note that at least one region should be provided (genes, enhancers, CGI, proms, repeats) or the chromsizes file (for bins).
 
@@ -277,7 +277,7 @@ class Parse_matrices:
             assert self.meth[_f].exists()
 
 
-    def create_mudata(self):
+    def create_mudata(self, aggtype='fraction'):
         # Some settings.
         np.seterr(divide='ignore', invalid='ignore')
         md.set_options(pull_on_update=False)
@@ -296,9 +296,12 @@ class Parse_matrices:
         _msg(self.logger, "Parsing Accessibility matrices")
         _m = sp.io.mmread(self.acc['meth']).todense()
         _c = sp.io.mmread(self.acc['cov']).todense()
-        X = np.zeros_like(_m, dtype=float)
-        X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
-        X = sp.sparse.csr_matrix(X)
+        if aggtype == 'fraction':
+            X = np.zeros_like(_m, dtype=float)
+            X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
+            X = sp.sparse.csr_matrix(X)
+        elif aggtype == 'sum':
+            X = sp.sparse.csr_matrix(_m)
         _obs = pl.read_csv(self.acc['cell'], separator='\t', has_header=False).to_pandas()
         _obs = pd.DataFrame(index= [Path(i).name.split('.')[0].replace('_NOMe-seq', '') for i in _obs['column_1'].to_list()] )
         _var = pl.read_csv(self.acc['reg'], separator='\t', has_header=True).to_pandas()
@@ -306,7 +309,6 @@ class Parse_matrices:
         _var = _var.drop_duplicates(subset='name', keep='first')
         X = X[:, _var.index]
         _var = _var.set_index('name')
-        _msg(self.logger, f"Accessibility matrix: shape={X.shape}, max={X.max()}, min={X.min()}, mean={X.mean()} 👍")
         acc_adata = anndata.AnnData(
             X=X,
             obs=_obs,
@@ -316,9 +318,12 @@ class Parse_matrices:
         _msg(self.logger, "Parsing Methylation matrices")
         _m = sp.io.mmread(self.meth['meth']).todense()
         _c = sp.io.mmread(self.meth['cov']).todense()
-        X = np.zeros_like(_m, dtype=float)
-        X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
-        X = sp.sparse.csr_matrix(X)
+        if aggtype == 'fraction':
+            X = np.zeros_like(_m, dtype=float)
+            X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
+            X = sp.sparse.csr_matrix(X)
+        elif aggtype == 'sum':
+            X = sp.sparse.csr_matrix(_m)
         _obs = pl.read_csv(self.meth['cell'], separator='\t', has_header=False).to_pandas()
         _obs = pd.DataFrame(index= [Path(i).name.split('.')[0].replace('_NOMe-seq', '') for i in _obs['column_1'].to_list()] )
         _var = pl.read_csv(self.meth['reg'], separator='\t', has_header=True).to_pandas()
@@ -326,7 +331,6 @@ class Parse_matrices:
         _var = _var.drop_duplicates(subset='name', keep='first')
         X = X[:, _var.index]
         _var = _var.set_index('name')
-        _msg(self.logger, f"Methylation matrix: shape={X.shape}, max={X.max()}, min={X.min()}, mean={X.mean()} 👍")
         meth_adata = anndata.AnnData(
             X=X,
             obs=_obs,
