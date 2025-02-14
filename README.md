@@ -10,7 +10,12 @@ A framework that encompasses a number of techniques applicable to scNMT-seq anal
 
 ## core-todo
  - [x] Installeable
- - [ ] nextflow output -> anndata
+ - [x] nextflow output -> anndata
+ - [ ] sparse_miss
+ - [ ] bins
+ - [ ] CNV ~ 'matrix' (cell x regions -> colname)
+ - [ ] make modalities optional
+ - [ ] exclusion -> blacklist (bed)
  - [ ] annotations
  - [ ] integrations
 

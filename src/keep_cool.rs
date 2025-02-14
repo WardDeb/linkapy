@@ -50,15 +50,19 @@ pub fn parse_cools(
 
     {
         // regions.
-        let regvals: Vec<Vec<(u32, u32, u32)>> = pool.install(|| {
+        let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
             coolfiles.par_iter().map(|coolfile| {
                 let coolregions = parse_cool(coolfile);
                 parsed_regions.par_iter().map(|region| {
                     let (meth_sum, total_sum , sites) = coolregions
                         .iter()
                         .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
-                        .fold((0, 0, 0 as u32), |(meth_acc, total_acc, sites), x| {
-                            (meth_acc + x.meth, total_acc + x.total, sites + 1)
+                        .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
+                            (
+                                if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
+                                if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
+                                if sites.is_nan() { 1.0 } else { sites + 1.0 },
+                            )
                         });
                     (meth_sum, total_sum, sites)
                 })
@@ -90,7 +94,7 @@ pub fn parse_cools(
     Ok(())
 }
 
-fn tupvec_to_sparse(dense: Vec<Vec<(u32, u32, u32)>>) -> (CsMat<u32>, CsMat<u32>, CsMat<u32>) {
+fn tupvec_to_sparse(dense: Vec<Vec<(f32, f32, f32)>>) -> (CsMat<f32>, CsMat<f32>, CsMat<f32>) {
     let max_row = dense.len();
     let max_col = dense.iter().map(|row| row.len()).max().unwrap_or(0);
 
@@ -100,34 +104,19 @@ fn tupvec_to_sparse(dense: Vec<Vec<(u32, u32, u32)>>) -> (CsMat<u32>, CsMat<u32>
 
     for (i, row) in dense.iter().enumerate() {
         for (j, &(v1, v2, v3)) in row.iter().enumerate() {
-            if v1 != 0 {
+            if !v1.is_nan() {
                 mat1.add_triplet(i, j, v1);
             }
-            if v2 != 0 {
+            if !v2.is_nan() {
                 mat2.add_triplet(i, j, v2);
             }
-            if v3 != 0 {
+            if !v3.is_nan() {
                 mat3.add_triplet(i, j, v3);
             }
         }
     }
     (mat1.to_csr(), mat2.to_csr(), mat3.to_csr())
 }
-
-
-// fn vec_to_sparse(vec: Vec<Vec<f32>>) -> CsMat<f32> {
-//     let rows = vec[0].len();
-//     let cols = vec.len();
-//     let mut mat = TriMat::new((rows, cols));
-//     for (colix, col) in vec.into_iter().enumerate() {
-//         for (rowix, val) in col.into_iter().enumerate() {
-//             if val != 0.0 {
-//                 mat.add_triplet(rowix, colix, val);
-//             }
-//         }
-//     }
-//     mat.to_csr()
-// }
 
 fn parse_cool(_f: &str) -> Vec<CoolRegion> {
     let mut coolregions: Vec<CoolRegion> = Vec::new();
