@@ -11,6 +11,7 @@ import anndata
 import scipy as sp
 from linkapy.linkars import parse_cools
 import mudata as md
+import signal
 
 def _msg(logger, msg, lvl='info'):
     print(msg)
@@ -46,8 +47,7 @@ class Parse_scNMT:
     :param str proms: Path to bed file containing proms to aggregate methylation signal over. Can be gzipped. (optional)
     :param str repeats: Path to bed file containing repeats to aggregate methylation signal over. Can be gzipped. (optional)
     """
-    def __init__(self, methpath = './', rnapath = './', project='scNMT', opath=None, chromsizes=None, threads=10, genes=None, enhancers=None, CGI=None, proms=None, repeats=None, binsize=100000):
-
+    def __init__(self, methpath = './', rnapath = './', project='scNMT', opath=None, chromsizes=None, threads=10, regions = None, qc=False):
         # Initiate a log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         _fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -69,6 +69,8 @@ class Parse_scNMT:
         self.logger.propagate = False
 
         _msg(self.logger, "Output directory: " + str(self.opath))
+        # Run QC or not
+        self.qc = qc
 
         # Methylation data
         _m = Path(methpath)
@@ -91,21 +93,14 @@ class Parse_scNMT:
         self.chromsizes = chromsizes
         self.regions = []
         self.regionlabels = []
-        if genes:
-            self.regions.append(genes)
-            self.regionlabels.append('genes')
-        if enhancers:
-            self.regions.append(enhancers)
-            self.regionlabels.append('enhancers')
-        if CGI:
-            self.regions.append(CGI)
-            self.regionlabels.append('CGI')
-        if proms:
-            self.regions.append(proms)
-            self.regionlabels.append('promoters')
-        if repeats:
-            self.regions.append(repeats)
-            self.regionlabels.append('repeats')
+        if regions:
+            for _reg in regions:
+                if not Path(_reg).exists():
+                    _msg(self.logger, f"Error: {_reg} does not exist", lvl='error')
+                else:
+                    self.regions.append(_reg)
+                    self.regionlabels.append(Path(_reg).name.replace('.bed.gz', '').replace('.bed', ''))
+
         if not self.regions and not self.chromsizes:
             sys.exit("No regions provided, and no chromsizes file provided to construct bins.")
         
@@ -181,17 +176,24 @@ class Parse_scNMT:
         accfile = Path(opath / (self.project + '.acc.meth.mtx'))
         metafile = Path(opath / (self.project + '.acc.meta.tsv'))
         cellfile = Path(opath / (self.project + '.acc.cell.tsv'))
+        original_handler = signal.getsignal(signal.SIGINT)
+
         if not accfile.exists():
-            parse_cools(
-                [str(i) for i in self.allc_acc_files],
-                self.regions,
-                self.regionlabels,
-                self.threads,
-                str(accbase),
-                str(metafile),
-                str(cellfile)
-            )
-            _msg(self.logger, f"Acc files written into {opath} 👍")
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_DFL)
+                parse_cools(
+                    [str(i) for i in self.allc_acc_files],
+                    self.regions,
+                    self.regionlabels,
+                    self.qc,
+                    self.threads,
+                    str(accbase),
+                    str(metafile),
+                    str(cellfile)
+                )
+                _msg(self.logger, f"Acc files written into {opath} 👍")
+            finally:
+                signal.signal(signal.SIGINT, original_handler)
         else:
             _msg(self.logger, f"Acc files found at {opath} 👍")
         
@@ -200,17 +202,24 @@ class Parse_scNMT:
         methfile = Path(opath / (self.project + '.meth.meth.mtx'))
         metafile = Path(opath / (self.project + '.meth.meta.tsv'))
         cellfile = Path(opath / (self.project + '.meth.cell.tsv'))
+        original_handler = signal.getsignal(signal.SIGINT)
+
         if not methfile.exists():
-            parse_cools(
-                [str(i) for i in self.allc_meth_files],
-                self.regions,
-                self.regionlabels,
-                self.threads,
-                str(methbase),
-                str(metafile),
-                str(cellfile)
-            )
-            _msg(self.logger, f"Meth files written into {opath} 👍")
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_DFL)
+                parse_cools(
+                    [str(i) for i in self.allc_meth_files],
+                    self.regions,
+                    self.regionlabels,
+                    self.qc,
+                    self.threads,
+                    str(methbase),
+                    str(metafile),
+                    str(cellfile)
+                )
+                _msg(self.logger, f"Meth files written into {opath} 👍")
+            finally:
+                signal.signal(signal.SIGINT, original_handler)
         else:
             _msg(self.logger, f"Meth files found at {opath} 👍")
 
@@ -290,9 +299,11 @@ class Parse_matrices:
         del rnameta['Geneid']
         rna_adata = anndata.AnnData(
             X=sp.sparse.csr_matrix(rnadf.values.T),
-            obs=pd.DataFrame(index= [i.replace('_RNA-seq', '') for i in rnadf.columns]),
+            obs=pd.DataFrame(index= [i.replace('_RNA', '') for i in rnadf.columns]),
             var=rnameta
         )
+        _msg(self.logger, "Parsing RNA matrices")
+        _msg(self.logger, f"adata for rna shape = {rna_adata.shape}")
         _msg(self.logger, "Parsing Accessibility matrices")
         _m = sp.io.mmread(self.acc['meth']).todense()
         _c = sp.io.mmread(self.acc['cov']).todense()
@@ -303,7 +314,7 @@ class Parse_matrices:
         elif aggtype == 'sum':
             X = sp.sparse.csr_matrix(_m)
         _obs = pl.read_csv(self.acc['cell'], separator='\t', has_header=False).to_pandas()
-        _obs = pd.DataFrame(index= [Path(i).name.split('.')[0].replace('_NOMe-seq', '') for i in _obs['column_1'].to_list()] )
+        _obs = pd.DataFrame(index= [Path(i).name.replace('.GCHN-Both.allc.tsv.gz', '').replace("_METH", "") for i in _obs['column_1'].to_list()] )
         _var = pl.read_csv(self.acc['reg'], separator='\t', has_header=True).to_pandas()
         # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
         _var = _var.drop_duplicates(subset='name', keep='first')
@@ -314,7 +325,7 @@ class Parse_matrices:
             obs=_obs,
             var=_var
         )
-
+        _msg(self.logger, f"adata for accessibility shape = {acc_adata.shape}")
         _msg(self.logger, "Parsing Methylation matrices")
         _m = sp.io.mmread(self.meth['meth']).todense()
         _c = sp.io.mmread(self.meth['cov']).todense()
@@ -325,7 +336,7 @@ class Parse_matrices:
         elif aggtype == 'sum':
             X = sp.sparse.csr_matrix(_m)
         _obs = pl.read_csv(self.meth['cell'], separator='\t', has_header=False).to_pandas()
-        _obs = pd.DataFrame(index= [Path(i).name.split('.')[0].replace('_NOMe-seq', '') for i in _obs['column_1'].to_list()] )
+        _obs = pd.DataFrame(index= [Path(i).name.replace('.WCGN-Both.allc.tsv.gz', '').replace("_METH", "") for i in _obs['column_1'].to_list()] )
         _var = pl.read_csv(self.meth['reg'], separator='\t', has_header=True).to_pandas()
                 # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
         _var = _var.drop_duplicates(subset='name', keep='first')
@@ -336,6 +347,7 @@ class Parse_matrices:
             obs=_obs,
             var=_var
         )
+        _msg(self.logger, f"adata for methylation shape = {meth_adata.shape}")
         # muData
         _msg(self.logger, "Creating muData object.")
         # Take intersection of all obs
