@@ -299,7 +299,7 @@ class Parse_matrices:
         del rnameta['Geneid']
         rna_adata = anndata.AnnData(
             X=sp.sparse.csr_matrix(rnadf.values.T),
-            obs=pd.DataFrame(index= [i.replace('_RNA', '') for i in rnadf.columns]),
+            obs=pd.DataFrame(index= [i.replace('_RNA-seq', '').replace("_RNA", "") for i in rnadf.columns]),
             var=rnameta
         )
         _msg(self.logger, "Parsing RNA matrices")
@@ -314,7 +314,11 @@ class Parse_matrices:
         elif aggtype == 'sum':
             X = sp.sparse.csr_matrix(_m)
         _obs = pl.read_csv(self.acc['cell'], separator='\t', has_header=False).to_pandas()
-        _obs = pd.DataFrame(index= [Path(i).name.replace('.GCHN-Both.allc.tsv.gz', '').replace("_METH", "") for i in _obs['column_1'].to_list()] )
+        cell_names = []
+        for i in _obs['column_1'].to_list():
+            _n = Path(i).name.replace('.GCHN-Both.allc.tsv.gz', '').replace("_NOMe-seq", "").replace("_METH", "")
+            cell_names.append(_n)
+        _obs = pd.DataFrame(index = cell_names)
         _var = pl.read_csv(self.acc['reg'], separator='\t', has_header=True).to_pandas()
         # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
         _var = _var.drop_duplicates(subset='name', keep='first')
@@ -336,7 +340,11 @@ class Parse_matrices:
         elif aggtype == 'sum':
             X = sp.sparse.csr_matrix(_m)
         _obs = pl.read_csv(self.meth['cell'], separator='\t', has_header=False).to_pandas()
-        _obs = pd.DataFrame(index= [Path(i).name.replace('.WCGN-Both.allc.tsv.gz', '').replace("_METH", "") for i in _obs['column_1'].to_list()] )
+        cell_names = []
+        for i in _obs['column_1'].to_list():
+            _n = Path(i).name.replace('.WCGN-Both.allc.tsv.gz', '').replace("_NOMe-seq", "").replace("_METH", "")
+            cell_names.append(_n)
+        _obs = pd.DataFrame(index = cell_names)
         _var = pl.read_csv(self.meth['reg'], separator='\t', has_header=True).to_pandas()
                 # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
         _var = _var.drop_duplicates(subset='name', keep='first')
@@ -351,9 +359,28 @@ class Parse_matrices:
         # muData
         _msg(self.logger, "Creating muData object.")
         # Take intersection of all obs
-        fincells = list(
-            set(rna_adata.obs_names) & set(acc_adata.obs_names) & set(meth_adata.obs_names)
-        )
+        _msg(self.logger, f"First observations for RNA data = {rna_adata.obs_names[:5]}")
+        _msg(self.logger, f"First observations for ACC data = {acc_adata.obs_names[:5]}")
+        _msg(self.logger, f"First observations for METH data = {meth_adata.obs_names[:5]}")
+
+        # Sets of obs_names
+        rna_set = set(rna_adata.obs_names)
+        acc_set = set(acc_adata.obs_names)
+        meth_set = set(meth_adata.obs_names)
+
+        # Cells in all three
+        fincells = list(rna_set & acc_set & meth_set)
+        all_cells = rna_set | acc_set | meth_set
+        dropped_cells = list(all_cells - set(fincells))
+
+        _msg(self.logger, f"{len(fincells)} surviving cells, {len(dropped_cells)} dropped cells.")
+        if len(fincells) == 0:
+            _msg(self.logger, "No cells in common between RNA, ACC and METH data. Exiting.", lvl='error')
+            sys.exit()
+        if len(dropped_cells) > 0:
+            _msg(self.logger, f"Dropped cells = {dropped_cells}")
+            for _cell in dropped_cells:
+                _msg(self.logger, f"Cell {_cell} in RNA = {_cell in rna_set}, ACC = {_cell in acc_set}, METH = {_cell in meth_set}")
         _msg(self.logger, f"Creating object with {len(fincells)} observations.")
         rna_adata = rna_adata[rna_adata.obs_names.isin(fincells)].copy()
         acc_adata = acc_adata[acc_adata.obs_names.isin(fincells)].copy()
