@@ -14,6 +14,7 @@ pub fn parse_cools(
     _coolfiles: Py<PyList>,
     _regions: Py<PyList>,
     _regionlabels: Py<PyList>,
+    qc: bool,
     threads: usize,
     obase: &str,
     oregionfile: &str,
@@ -47,27 +48,90 @@ pub fn parse_cools(
     println!("Found {} regions.", parsed_regions.len());
     println!("Launching a pool with {} threads to parse allcool files.", threads);
     let pool = ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    if qc{
+        // QC
+        // Collapse the cells to keep things lean and mean
+        println!("Starting QC.");
+        let mut sum_mat: Vec<Vec<f32>> = vec![vec![f32::NAN; 301]; parsed_regions.len()];
+        let mut count_mat: Vec<Vec<f32>> = vec![vec![f32::NAN; 301]; parsed_regions.len()];
+
+        let _ = coolfiles
+            .iter()
+            .for_each(|coolfile| {
+                let coolregions = parse_cool(coolfile);
+                for (ix, region) in parsed_regions.iter().enumerate() {
+                    coolregions
+                        .iter()
+                        .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] -100 && x.pos <= (*region.end.last().unwrap() + 100))
+                        .for_each(|x| {
+                            // We know these have value now. 
+                            let frac = x.meth as f32 / x.total as f32;
+                            // map pos between 0 and 100
+                            let pos;
+                            if x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap() {
+                                pos = ((x.pos - region.start[0]) as f32 / (*region.end.last().unwrap() - region.start[0]) as f32 * 99.0).round() as usize;
+                                if sum_mat[ix][pos+100].is_nan() {
+                                    sum_mat[ix][pos+100] = frac;
+                                    count_mat[ix][pos+100] = 1.0;
+                                } else {
+                                    sum_mat[ix][pos+100] += frac;
+                                    count_mat[ix][pos+100] += 1.0;
+                                }
+                            } else {
+                                if x.pos < region.start[0] {
+                                    pos = (region.start[0] - x.pos) as usize;
+                                } else {
+                                    pos = (200 + x.pos - region.end.last().unwrap()) as usize;
+                                }
+                                if sum_mat[ix][pos].is_nan() {
+                                    sum_mat[ix][pos] = frac;
+                                    count_mat[ix][pos] = 1.0;
+                                } else {
+                                    sum_mat[ix][pos] += frac;
+                                    count_mat[ix][pos] += 1.0;
+                                }
+                            }
+                        });
+                }
+            });
+        let mut mean_mat = TriMat::new((parsed_regions.len(), 301));
+        for (ix, row) in sum_mat.iter().enumerate() {
+            for (pos, &sum_val) in row.iter().enumerate() {
+                let count_val = count_mat[ix][pos];
+                if !count_val.is_nan() {
+                    mean_mat.add_triplet(ix, pos, sum_val / count_val);
+                }
+            }
+        }
+
+        let oqc = format!("{}.qc.mtx", obase);
+        write_matrix_market(oqc, &mean_mat).unwrap();
+    }
 
     {
-        // regions.
+        // Metrics
         let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
-            coolfiles.par_iter().map(|coolfile| {
-                let coolregions = parse_cool(coolfile);
-                parsed_regions.par_iter().map(|region| {
-                    let (meth_sum, total_sum , sites) = coolregions
-                        .iter()
-                        .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
-                        .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
-                            (
-                                if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
-                                if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
-                                if sites.is_nan() { 1.0 } else { sites + 1.0 },
-                            )
-                        });
-                    (meth_sum, total_sum, sites)
+            coolfiles
+                .par_iter()
+                .map(|coolfile| {
+                    let coolregions = parse_cool(coolfile);
+                    parsed_regions
+                        .par_iter()
+                        .map(|region| {
+                            let (meth_sum, total_sum , sites) = coolregions
+                                .iter()
+                                .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
+                                .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
+                                    (
+                                        if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
+                                        if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
+                                        if sites.is_nan() { 1.0 } else { sites + 1.0 },
+                                    )
+                                });
+                            (meth_sum, total_sum, sites)
+                        })
+                .collect()
                 })
-            .collect()
-            })
         .collect()
         });
         let (methm, covm, sitem) = tupvec_to_sparse(regvals);
@@ -155,11 +219,16 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
                 let chrom = fields[0].to_string();
                 let start = fields[1].to_string();
                 let end = fields[2].to_string();
+                let name: String;
+                if fields.len() > 3 {
+                    name = fields[3].to_string();
+                } else {
+                    name = format!("{}:{}-{}", chrom, start, end);
+                }
                 // check if start, end have commas
                 if start.contains(",") {
                     let start: Vec<u32> = start.split(',').map(|x| x.parse::<u32>().unwrap()).collect();
                     let end: Vec<u32> = end.split(',').map(|x| x.parse::<u32>().unwrap()).collect();
-                    let name = format!("{}:{}-{}", chrom, start[0], end[0]);
                     regions.push(
                         Region{
                             chrom: chrom,
@@ -172,7 +241,6 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
                 } else {
                     let start = start.parse::<u32>().unwrap();
                     let end = end.parse::<u32>().unwrap();
-                    let name = format!("{}:{}-{}", chrom, start, end);
                     regions.push(
                         Region{
                             chrom: chrom,
@@ -195,11 +263,16 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
                 let chrom = fields[0].to_string();
                 let start = fields[1].to_string();
                 let end = fields[2].to_string();
+                let name: String;
+                if fields.len() > 3 {
+                    name = fields[3].to_string();
+                } else {
+                    name = format!("{}:{}-{}", chrom, start, end);
+                }
                 // check if start, end have commas
                 if start.contains(",") {
                     let start: Vec<u32> = start.split(',').map(|x| x.parse::<u32>().unwrap()).collect();
                     let end: Vec<u32> = end.split(',').map(|x| x.parse::<u32>().unwrap()).collect();
-                    let name = format!("{}:{}-{}", chrom, start[0], end[0]);
                     regions.push(
                         Region{
                             chrom: chrom,
@@ -212,7 +285,6 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
                 } else {
                     let start = start.parse::<u32>().unwrap();
                     let end = end.parse::<u32>().unwrap();
-                    let name = format!("{}:{}-{}", chrom, start, end);
                     regions.push(
                         Region{
                             chrom: chrom,
