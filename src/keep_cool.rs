@@ -14,6 +14,7 @@ pub fn parse_cools(
     _coolfiles: Py<PyList>,
     _regions: Py<PyList>,
     _regionlabels: Py<PyList>,
+    qc: bool,
     threads: usize,
     obase: &str,
     oregionfile: &str,
@@ -47,27 +48,58 @@ pub fn parse_cools(
     println!("Found {} regions.", parsed_regions.len());
     println!("Launching a pool with {} threads to parse allcool files.", threads);
     let pool = ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    if qc {
+        // QC
+        // Collapse the cells to keep things lean and mean
+        println!("Starting QC.");
+        let mut qcvals = TriMat::new( (parsed_regions.len(), 100) );
 
-    {
-        // regions.
-        let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
-            coolfiles.par_iter().map(|coolfile| {
+        let _ = coolfiles
+            .iter()
+            .for_each(|coolfile| {
                 let coolregions = parse_cool(coolfile);
-                parsed_regions.par_iter().map(|region| {
-                    let (meth_sum, total_sum , sites) = coolregions
+                for (ix, region) in parsed_regions.iter().enumerate() {
+                    coolregions
                         .iter()
                         .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
-                        .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
-                            (
-                                if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
-                                if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
-                                if sites.is_nan() { 1.0 } else { sites + 1.0 },
-                            )
+                        .for_each(|x| {
+                            // We know these have value now. 
+                            let frac = x.meth as f32 / x.total as f32;
+                            // map pos between 0 and 100
+                            let pos = ((x.pos - region.start[0]) as f32 / (*region.end.last().unwrap() - region.start[0]) as f32 * 99.0).round() as usize;
+                            qcvals.add_triplet(ix, pos, frac);
                         });
-                    (meth_sum, total_sum, sites)
+                }
+            });
+        
+        let oqc = format!("{}.qc.mtx", obase);
+        write_matrix_market(oqc, &qcvals).unwrap();
+    }
+
+    {
+        // Metrics
+        let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
+            coolfiles
+                .par_iter()
+                .map(|coolfile| {
+                    let coolregions = parse_cool(coolfile);
+                    parsed_regions
+                        .par_iter()
+                        .map(|region| {
+                            let (meth_sum, total_sum , sites) = coolregions
+                                .iter()
+                                .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
+                                .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
+                                    (
+                                        if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
+                                        if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
+                                        if sites.is_nan() { 1.0 } else { sites + 1.0 },
+                                    )
+                                });
+                            (meth_sum, total_sum, sites)
+                        })
+                .collect()
                 })
-            .collect()
-            })
         .collect()
         });
         let (methm, covm, sitem) = tupvec_to_sparse(regvals);

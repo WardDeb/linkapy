@@ -14,14 +14,27 @@ TLDR
 ~~~~
 
 Create muData object from nextflow pipeline output (i.e. featureCounts, allcools).
+The methylation data can be parsed in bins (default 10 000 bp long), or several region files can be provided (in bed or bed.gz format).
 
 .. code-block:: python
 
-    from linkapy import Parse_scNMT, Parse_matrices
+    from linkapy.parsing import Parse_scNMT, Parse_matrices
     parser = Parse_scNMT(
         methpath='./', rnapath='./',
         opath='output_dir', threads=10,
         chromsizes='path_to_chromsizes'
+    )
+    parser.create_matrices()
+    muCreator = Parse_matrices
+    muCreator.create_mudata()
+
+
+.. code-block:: python
+
+    from linkapy.parsing import Parse_scNMT, Parse_matrices
+    parser = Parse_scNMT(
+        methpath='./', rnapath='./',
+        opath='output_dir', threads=10
     )
     parser.create_matrices()
     muCreator = Parse_matrices
