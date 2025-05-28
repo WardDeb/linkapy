@@ -12,25 +12,7 @@ Or alternatively, with a working maturin installation:
 
   > maturin develop --release
 
+# Documentation
 
-# Todo
-
-## core-todo
- - [x] Installeable
- - [x] nextflow output -> anndata
- - [ ] sparse_miss
- - [ ] bins
- - [ ] CNV ~ 'matrix' (cell x regions -> colname)
- - [ ] make modalities optional
- - [ ] exclusion -> blacklist (bed)
- - [ ] annotations
- - [ ] integrations
-
-## meta-todo
- - [x] readthedocs setup
- - [ ] API exposure
- - [ ] CLI
- - [x] actions - lint, action
- - [ ] testdata
- - [ ] test - parse
- - [ ] test - anndata
+Note that this package is still in development and is prone to change without notice. 
+A rudimentary [documentation](https://linkapy.readthedocs.io/en/latest/) is available.
