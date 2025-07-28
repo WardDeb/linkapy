@@ -28,15 +28,15 @@ def _msg(logger, msg, lvl='info'):
         sys.exit()
 
 class Parse_scNMT:
-    """
+    '''
     Parse_scNMT mainly functions to create matrices (arrow format for RNA, mtx format for accessibility / methylation)
     from directories containing analyzed scNMT-seq data. Theoretically this could be any type of multi-modal (read: RNA / methyatlion) data, but the class is written with the scNMT workflow
     from the Thienpont lab (KU Leuven) in mind.
     There are two required arguments (methpath and rnapath).
     Note that at least one region should be provided (genes, enhancers, CGI, proms, repeats) or the chromsizes file (for bins).
 
-    :param str methpath: The path to the methylation directory (will be searched recursively!). Searches allcool files with *WCGN*allc.tsv.gz and *GCHN*.allc.tsv.gz for methylation and accessibility files, respectively. (required)
-    :param str rnapath: The path to the RNA output directory (will be searched recursively!). For now looks for *gene.tsv files (i.e. featureCounts output). Can handle single or multiple files, will be combined. (required)
+    :param str methpath: The path to the methylation directory (will be searched recursively!). Searches allcool files with \*WCGN\*allc.tsv.gz and \*GCHN\*.allc.tsv.gz for methylation and accessibility files, respectively. (required)
+    :param str rnapath: The path to the RNA output directory (will be searched recursively!). For now looks for \*gene.tsv files (i.e. featureCounts output). Can handle single or multiple files, will be combined. (required)
     :param str project: Name of the project. Defaults to 'scNMT'. Generated matrices will carry the project in their name. (optional)  
     :param str opath: Name of the output directory to store matrices in. Defaults to None, which is the currect working directory. (optional)
     :param str chromsizes: Path to the chromsizes file for the genome. Defaults to None. If set, bins will be included in the accessibility/methylation aggregation. (optional)
@@ -46,7 +46,7 @@ class Parse_scNMT:
     :param str CGI: Path to bed file containing CGI to aggregate methylation signal over. Can be gzipped. (optional)
     :param str proms: Path to bed file containing proms to aggregate methylation signal over. Can be gzipped. (optional)
     :param str repeats: Path to bed file containing repeats to aggregate methylation signal over. Can be gzipped. (optional)
-    """
+    '''
     def __init__(self, methpath = './', rnapath = './', project='scNMT', opath=None, chromsizes=None, threads=10, regions = None, qc=False):
         # Initiate a log
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -225,14 +225,14 @@ class Parse_scNMT:
 
 
 class Parse_matrices:
-    """
+    '''
     Parses matrices created previously (with Parse_scNMT) and creates a muon object (written to disk).
     This is then the starting point to downstream analysis.
 
     :param str matrixdir: Directory where the matrices can be found. (required)
     :param str project: Project name, similar to the one provided in the Parse_scNMT part. Defaults to 'scNMT' (optional)
     :param str ofile: Name of the output file, defaults to matrixdir / project.h5. (optional)
-    """
+    '''
 
     def __init__(self, matrixdir, project='scNMT', opath=None):
         self.matrixdir = Path(matrixdir)
