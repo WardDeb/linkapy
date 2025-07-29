@@ -1,4 +1,4 @@
-name: pytests
+name: build_docs
 on: [push, pull_request]
 jobs:
   pytests:
@@ -14,7 +14,8 @@ jobs:
           cache: 'pip'
       - name: test
         run: |
-          pip install .[dev]
-      - name: run tests
+          pip install .[docs]
+      - name: docs
         run: |
-          pytest -v
+          cd docs
+          sphinx-build -b html . _build
