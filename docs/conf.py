@@ -13,4 +13,4 @@ source_suffix = '.rst'
 
 html_theme = 'sphinx_rtd_theme'
 autoapi_dirs = ['../python']
-autodoc_mock_imports = ["linkapy.linkars"]
+autodoc_mock_imports = ["linkapy.linkapy"]
