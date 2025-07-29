@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import anndata
 import scipy as sp
-from linkapy.linkars import parse_cools
+from linkapy.linkapy import parse_cools
 import mudata as md
 import signal
 
