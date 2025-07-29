@@ -1,10 +1,10 @@
 [package]
-name = "linkars"
-version = "0.0.1"
+name = "linkapy"
+version = "1.0.0"
 edition = "2021"
 
 [lib]
-name = "linkars"
+name = "linkapy"
 crate-type = ["cdylib"]
 
 [dependencies]
