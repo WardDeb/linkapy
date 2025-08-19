@@ -1,7 +1,5 @@
 from pathlib import Path
 import sys
-from rich import print
-import logging
 from datetime import datetime
 import uuid
 import polars as pl
@@ -9,219 +7,199 @@ import pandas as pd
 import numpy as np
 import anndata
 import scipy as sp
-from linkapy.linkapy import parse_cools
 import mudata as md
 import signal
+from rich.logging import RichHandler
+from linkapy.linkapy import parse_cools
+import logging
 
-def _msg(logger, msg, lvl='info'):
-    print(msg)
-    # For logging sake, remove '-'*100 from the strings.
-    msg = msg.replace('-'*100, '')
-    if lvl == 'info':
-        logger.info(msg)
-    elif lvl == 'debug':
-        logger.debug(msg)
-    elif lvl == 'warning':
-        logger.warning(msg)
-    else:
-        logger.error(msg)
-        sys.exit()
-
-class Parse_scNMT:
+class Linkapy_Parser:
     '''
-    Parse_scNMT mainly functions to create matrices (arrow format for RNA, mtx format for accessibility / methylation)
-    from directories containing analyzed scNMT-seq data. Theoretically this could be any type of multi-modal (read: RNA / methyatlion) data, but the class is written with the scNMT workflow
+    Linkapy_Parser mainly functions to create matrices (arrow format for RNA, mtx format for accessibility / methylation)
+    from directories containing analyzed scNMT-seq data. Theoretically this could be any type of multi-modal (read: RNA / methylation) data, but the class is written with the scNMT workflow
     from the Thienpont lab (KU Leuven) in mind.
-    There are two required arguments (methpath and rnapath).
-    Note that at least one region should be provided (genes, enhancers, CGI, proms, repeats) or the chromsizes file (for bins).
+    
+    At least one of both items should be provided:
+     - methylation_path and/or transcriptome_path
+     - regions or chromsizes file (if methylation_path is provided).
 
-    :param str methpath: The path to the methylation directory (will be searched recursively!). Searches allcool files with \*WCGN\*allc.tsv.gz and \*GCHN\*.allc.tsv.gz for methylation and accessibility files, respectively. (required)
-    :param str rnapath: The path to the RNA output directory (will be searched recursively!). For now looks for \*gene.tsv files (i.e. featureCounts output). Can handle single or multiple files, will be combined. (required)
-    :param str project: Name of the project. Defaults to 'scNMT'. Generated matrices will carry the project in their name. (optional)  
-    :param str opath: Name of the output directory to store matrices in. Defaults to None, which is the currect working directory. (optional)
-    :param str chromsizes: Path to the chromsizes file for the genome. Defaults to None. If set, bins will be included in the accessibility/methylation aggregation. (optional)
-    :param int threads: Number of threads to process Allcool files. Defaults to 10. (optional)
-    :param str genes: Path to bed file containing genes to aggregate methylation signal over. Can be gzipped. (optional)
-    :param str enhancers: Path to bed file containing enhancers to aggregate methylation signal over. Can be gzipped. (optional)
-    :param str CGI: Path to bed file containing CGI to aggregate methylation signal over. Can be gzipped. (optional)
-    :param str proms: Path to bed file containing proms to aggregate methylation signal over. Can be gzipped. (optional)
-    :param str repeats: Path to bed file containing repeats to aggregate methylation signal over. Can be gzipped. (optional)
+    :param str methylation_path: The path to the methylation directory (will be searched recursively!).
+    :param str transcriptome_path: The path to the RNA output directory (will be searched recursively!).
+    :param str output: The output directory where matrices will be written to. Defaults to current working directory in folder ('linkapy_output').
+    :param bool mudata: If set, a MuData object will be created from the matrices and written to the output folder. Defaults to False.
+    :param tuple methylation_pattern: The glob pattern to search methylation path recursively. Defaults to ('GC'). Note that this is a tuple.
+    :param tuple transcriptome_pattern: The glob pattern to search transcriptome path recursively. Defaults to ('tsv'). Note that this is a tuple.
+    :param bool NOMe: If set, methylation_path will be searched for NOMe-seq data. The methylation path will be searched for patterns ('GCHN', 'WCGN').
+    :param int threads: Number of threads to use for parsing. Defaults to 1.
+    :param str chromsizes: Path to the chromsizes file for the genome. If set, methylation signal will be aggregated over bins
+    :param tuple regions: Path or paths to bed files containing regions to aggregate methylation signal over. Can be gzipped. Note that this is a tuple.
+    :param tuple blacklist: Path or paths to bed files containing regions to exclude from the aggregation. Can be gzipped. Note that this is a tuple.
+    :param int binsize: Size of the bins to aggregate over. Only relevant if no regions are provided. Defaults to 10000.
+    :param str project: Name of the project. Will be treated as a prefix for the output files. Defaults to 'linkapy'.
     '''
-    def __init__(self, methpath = './', rnapath = './', project='scNMT', opath=None, chromsizes=None, threads=10, regions = None, qc=False):
-        # Initiate a log
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        _fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        # Set opath
-        if opath:
-            self.opath = Path(opath)
-            self.opath.mkdir(parents=True, exist_ok=True)
-        else:
-            self.opath = Path.cwd()
-
-        # Logfile
-        log_file = Path(self.opath / f"lap_Parse_SCNMT_{timestamp}_{uuid.uuid4().hex}.log")
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(str(log_file))
-        file_handler = logging.FileHandler(log_file)
-        # To file
-        file_handler.setFormatter(_fmt)
-        self.logger.addHandler(file_handler)
-        self.logger.propagate = False
-
-        _msg(self.logger, "Output directory: " + str(self.opath))
-        # Run QC or not
-        self.qc = qc
-
-        # Methylation data
-        _m = Path(methpath)
-        if not _m.exists():
-            _msg(self.logger, f"Error: {methpath} does not exist", lvl='error')
-        self.methpath = Path(methpath)
-
-        # RNA data
-        _r = Path(rnapath)
-        if not _r.exists():
-            _msg(self.logger, f"Error: {rnapath} does not exist", lvl='error')
-        self.rnapath = Path(rnapath)
-
-        # Parse paths
-        self._glob_files()
-        self.threads = threads
+    def __init__(
+        self, 
+        methylation_path=None, 
+        transcriptome_path=None, 
+        output='linkapy_output', 
+        mudata=False, 
+        methylation_pattern=('*GC*',), 
+        transcriptome_pattern=('*tsv',), 
+        NOMe=False, 
+        threads=1, 
+        chromsizes=None, 
+        regions=None, 
+        blacklist=None, 
+        binsize=10000, 
+        project='linkapy',
+    ):
+        self.output = Path(output)
+        self.output.mkdir(parents=True, exist_ok=True)
         self.project = project
 
-        # Regions
-        self.chromsizes = chromsizes
-        self.regions = []
-        self.regionlabels = []
-        if regions:
-            for _reg in regions:
-                if not Path(_reg).exists():
-                    _msg(self.logger, f"Error: {_reg} does not exist", lvl='error')
-                else:
-                    self.regions.append(_reg)
-                    self.regionlabels.append(Path(_reg).name.replace('.bed.gz', '').replace('.bed', ''))
+        # Set up log
+        self.logfile = self.output / f'{self.project}.log'
+        self.logger = logging.getLogger()
+        self.logger.setLevel(logging.INFO)
+        rich_handler = RichHandler(rich_tracebacks=True, show_time=False, show_level=True, show_path=False)
+        rich_handler.setLevel(logging.DEBUG)
+        _fmt = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s', datefmt="%H:%M:%S")
+        file_handler = logging.FileHandler(self.logfile)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(_fmt)
 
-        if not self.regions and not self.chromsizes:
-            sys.exit("No regions provided, and no chromsizes file provided to construct bins.")
+        self.logger.addHandler(rich_handler)
+        self.logger.addHandler(file_handler)
+        self.logger.info(f"Linkapy Parser - project {self.project}")
+        self.logger.info(f"Logging under {self.logfile}")
+
+        # Check parameters
+        if not methylation_path and not transcriptome_path:
+            self.logger.error("No methylation_path or transcriptome_path provided. Exiting.")
+            raise ValueError("Missing either transcritpome or methylation path")
+        if methylation_path and (not chromsizes and not regions):
+            self.logger.error("Methylation data requires either a chromsizes file or at least one regions file.")
+            raise ValueError("Missing regions or chromsizes")
+        if chromsizes and regions:
+            self.logger.warning("Both chromsizes and regions provided. Chromsizes will be ignored.")
+            chromsizes = None
+        if NOMe:
+            self.logger.info("NOMe flag set. Methylation pattern will be set to ('*GCHN*', '*WCGN*')")
+            methylation_pattern = ('*GCHN*', '*WCGN*')
         
-    def _glob_files(self):
-        # glob for allc.tsv.gz files
-        _msg(self.logger, "-"*100 + "\n" + "Parse_scNMT - file globber" + "\n" + "-"*100)
-        _msg(self.logger, f"Searching file paths: methylation = [green]{self.methpath}[/green] rna = [green]{self.rnapath}[/green].")
-        self.allc_acc_files = list(self.methpath.rglob("*GCHN*.allc.tsv.gz"))
-        self.allc_meth_files = list(self.methpath.rglob("*WCGN*.allc.tsv.gz"))
-        assert len(self.allc_acc_files) == len(self.allc_meth_files)
-        self.rna_files = list(self.rnapath.rglob("*gene.tsv"))
-        _msg(self.logger, f"Found {len(self.allc_acc_files)} accessibility files.")
-        _msg(self.logger, f"Found {len(self.allc_meth_files)} methylation files.")
-        _msg(self.logger, f"Found {len(self.rna_files)} RNA file(s).")
+        # Set up paths
+        self.methylation_path = Path(methylation_path) if methylation_path else None
+        self.transcriptome_path = Path(transcriptome_path) if transcriptome_path else None
+        self.chromsizes = Path(chromsizes) if chromsizes else None
+        self.regions = [Path(r) for r in regions] if regions else []
+        self.blacklist = [Path(b) for b in blacklist] if blacklist else []
+        
+        # settings and flags
+        self.threads = threads
+        self.mudata = mudata
+        self.methylation_pattern = methylation_pattern
+        self.transcriptome_pattern = transcriptome_pattern
+        self.binsize = binsize
 
-    def _read_rna(self, _f):
-        a = pl.read_csv(_f, separator='\t', skip_rows=1, has_header=True)
-        a.columns = [i.replace("filtered.", "").replace(".Aligned.sortedByCoord.Processed.out.bam", "") for i in a.columns]
-        schema = {
-            'Geneid': pl.String,
-            'Chr': pl.String,
-            'Start': pl.UInt32,
-            'End': pl.UInt32,
-            'Strand': pl.String,
-            'Length': pl.UInt32
-        }
-        # Fill in rest of counts
-        for _s in a.columns:
-            if _s not in schema:
-                schema[_s] = pl.UInt32
-        a = a.select([
-            pl.col(col).cast(schema[col]) for col in a.columns
-        ])
-        metacol = ["Geneid", "Chr", "Start", "End", "Strand", "Length"]
-        metadf = a.select(metacol)
-        cdf = a.select([_c for _c in a.columns if _c not in metacol])
-        return (metadf, cdf.lazy())
+        # Validate paths and files.
+        self._validate()
+        # Discover files to aggregate.
+        self._glob()
+    
+    def _validate(self):
 
-    def create_matrices(self):
-        opath = self.opath
-        opath.mkdir(parents=True, exist_ok=True)
-        _msg(self.logger, "-"*100 + "\n" + "Parse_scNMT - Parse matrices" + "\n" + "-"*100)
+        self.logger.info("Validating files and paths.")
+        if self.methylation_path and not self.methylation_path.exists():
+            self.logger.error(f"Methylation path {self.methylation_path} does not exist.")
+            raise FileNotFoundError(f"Methylation path {self.methylation_path} does not exist.")
+        if self.transcriptome_path and not self.transcriptome_path.exists():
+            self.logger.error(f"Transcriptome path {self.transcriptome_path} does not exist.")
+            raise FileNotFoundError(f"Transcriptome path {self.transcriptome_path} does not exist.")
+        if self.chromsizes and not self.chromsizes.exists():
+            self.logger.error(f"Chromsizes file {self.chromsizes} does not exist.")
+            raise FileNotFoundError(f"Chromsizes file {self.chromsizes} does not exist.")
+        for r in self.regions:
+            if not r.exists():
+                self.logger.error(f"Region file {r} does not exist.")
+                raise FileNotFoundError(f"Region file {r} does not exist.")
+        for b in self.blacklist:
+            if not b.exists():
+                self.logger.error(f"Blacklist file {b} does not exist.")
+                raise FileNotFoundError(f"Blacklist file {b} does not exist.")
 
-        ## RNA
-        _msg(self.logger, "Parsing RNA files.")
-        if not Path(opath / (self.project + '_rnadf.arrow')).exists() and not Path(opath / (self.project + '_rnameta.arrow')).exists():    
-            # Two situations - one featureCounts.tsv file, or more in wich case we need to merge.
-            if len(self.rna_files) == 1:
-                metadf, rnadf = self._read_rna(self.rna_files[0])
-                rnadf = rnadf.collect()
-                rnadf.write_ipc(opath / (self.project + '_rnadf.arrow'), compression='zstd')
-                metadf.write_ipc(opath / (self.project + '_rnameta.arrow'), compression='zstd')
+        if self.methylation_path:
+            if not self.methylation_pattern:
+                self.logger.error("No methylation pattern provided. Exiting.")
+                raise ValueError("Missing methylation pattern")
+            for _ in self.methylation_pattern:
+                if '*' not in _:
+                    self.logger.warning(f"Methylation pattern {_} doesn't contain an asterisk. Are you sure this is what you want ?")
+        if self.transcriptome_path:
+            if not self.transcriptome_pattern:
+                self.logger.error("No transcriptome pattern provided. Exiting.")
+                raise ValueError("Missing transcriptome pattern")
+            for _ in self.transcriptome_pattern:
+                    if '*' not in _:
+                        self.logger.warning(f"Transcriptome pattern {_} doesn't contain an asterisk. Are you sure this is what you want ?")
+        
+    def _glob(self):
+        self.logger.info("Globbing files.")
+        # If methylation_path is provided, there is at least one pattern (as per validate).
+        # The asterisks are stripped form the patterns, and used as keys in a dictionary to keep the globs.
+        
+        if self.methylation_path:
+            self.methylation_files = {}
+            for pattern in self.methylation_pattern:
+                _ = list(self.methylation_path.rglob(pattern))
+                assert any(_), f"No files found for pattern \'{pattern}\' in {self.methylation_path}"
+                self.methylation_files[pattern.replace('*', '')] = _
+                self.logger.info(f"Methylation search - pattern \'{pattern}\' = {len(_)} files found.")
+        if self.transcriptome_path:
+            self.transcriptome_files = {}
+            for pattern in self.transcriptome_pattern:
+                _ = list(self.transcriptome_path.rglob(pattern))
+                assert any(_), f"No files found for pattern {pattern} in {self.transcriptome_path}"
+                self.transcriptome_files[pattern.replace('*', '')] = _
+                self.logger.info(f"Transcriptome search - pattern \'{pattern}\' = {len(_)} files found.")
 
-            else:
-                rnadfs = []
-                metadfs = []
-                for _f in self.rna_files:
-                    metadf, rnadf = self._read_rna(_f)
-                    rnadfs.append(rnadf)
-                    metadfs.append(metadf)
-                # Make sure gene order is ok.
-                assert(all(metadfs[0].equals(df) for df in metadfs[1:]))
-                rnadf = pl.concat(rnadfs, how="horizontal")
-                rnadf = rnadf.collect()
-                rnadf.write_ipc(opath / (self.project + '_rnadf.arrow'), compression='zstd')
-                metadf.write_ipc(opath / (self.project + '_rnameta.arrow'), compression='zstd')
-            _msg(self.logger, f"RNA files written into {opath} 👍")
-        else:
-            _msg(self.logger, f"RNA files found at {opath} 👍")
-
-        # Accessibility
-        accbase = Path(opath / (self.project + '.acc'))
-        accfile = Path(opath / (self.project + '.acc.meth.mtx'))
-        metafile = Path(opath / (self.project + '.acc.meta.tsv'))
-        cellfile = Path(opath / (self.project + '.acc.cell.tsv'))
-        original_handler = signal.getsignal(signal.SIGINT)
-
-        if not accfile.exists():
-            try:
-                signal.signal(signal.SIGINT, signal.SIG_DFL)
-                parse_cools(
-                    [str(i) for i in self.allc_acc_files],
-                    self.regions,
-                    self.regionlabels,
-                    self.qc,
-                    self.threads,
-                    str(accbase),
-                    str(metafile),
-                    str(cellfile)
-                )
-                _msg(self.logger, f"Acc files written into {opath} 👍")
-            finally:
-                signal.signal(signal.SIGINT, original_handler)
-        else:
-            _msg(self.logger, f"Acc files found at {opath} 👍")
+    def parse(self):
+        self.logger.info("Start parsing files.")
+        # RNA
+        if self.transcriptome_files:
+            (self.output / 'matrices').mkdir(parents=True, exist_ok=True)
+            self.logger.info("Parsing RNA files.")
+            for pattern, files in self.transcriptome_files.items():
+                self.logger.info(f"Parsing RNA pattern \'{pattern}\' - {len(files)} files")
+                _prefix = self.output / 'matrices' / f'RNA_{pattern}'
+                # Don't rerun if the files already exist.
+                _countf = _prefix.with_name(_prefix.name + "_counts.arrow")
+                _metaf = _prefix.with_name(_prefix.name + "_meta.arrow")
+                if not (_countf.exists() and _metaf.exists()):
+                    parse_rna(files, _prefix)
+                    self.logger.info(f"RNA pattern \'{pattern}\' written with {_prefix}")
+                else:
+                    self.logger.info(f"RNA pattern \'{pattern}\' files already exist.")
         
         # Methylation
-        methbase = Path(opath / (self.project + '.meth'))
-        methfile = Path(opath / (self.project + '.meth.meth.mtx'))
-        metafile = Path(opath / (self.project + '.meth.meta.tsv'))
-        cellfile = Path(opath / (self.project + '.meth.cell.tsv'))
-        original_handler = signal.getsignal(signal.SIGINT)
-
-        if not methfile.exists():
-            try:
+        if self.methylation_files:
+            (self.output / 'matrices').mkdir(parents=True, exist_ok=True)
+            self.logger.info("Parsing methylation files.")
+            for pattern, files in self.methylation_files.items():
+                self.logger.info(f"Parsing methylation pattern \'{pattern}\' - {len(files)} files")
+                _prefix = self.output / 'matrices' / f"METH_{pattern}"
+                _original_handler = signal.getsignal(signal.SIGINT)
                 signal.signal(signal.SIGINT, signal.SIG_DFL)
+                _region_labels = [r.name for r in self.regions] if self.regions else []
                 parse_cools(
-                    [str(i) for i in self.allc_meth_files],
-                    self.regions,
-                    self.regionlabels,
-                    self.qc,
+                    [str(i) for i in files],
+                    [str(i) for i in self.regions] if self.regions else [],
+                    _region_labels,
                     self.threads,
-                    str(methbase),
-                    str(metafile),
-                    str(cellfile)
+                    _prefix.name,
+                    str(self.chromsizes) if self.chromsizes else 'none',
+                    self.binsize if self.binsize else 0,
                 )
-                _msg(self.logger, f"Meth files written into {opath} 👍")
-            finally:
-                signal.signal(signal.SIGINT, original_handler)
-        else:
-            _msg(self.logger, f"Meth files found at {opath} 👍")
+                signal.signal(signal.SIGINT, _original_handler)
 
 
 class Parse_matrices:
@@ -398,3 +376,42 @@ class Parse_matrices:
         _of = self.opath / f"{self.project}.h5mu"
         _mu.write(_of)
         _msg(self.logger, f"mudata object written to {_of}")
+
+
+
+
+
+
+
+def parse_rna(files, prefix):
+    metacols = ["Geneid", "Chr", "Start", "End", "Strand", "Length"]
+    schema = {
+        'Geneid': pl.String,
+        'Chr': pl.String,
+        'Start': pl.UInt32,
+        'End': pl.UInt32,
+        'Strand': pl.String,
+        'Length': pl.UInt32
+    }
+
+    metadfs = []
+    countdfs = []
+    for _f in files:
+        df = pl.read_csv(_f, separator='\t', skip_rows=1, has_header=True)
+        _schema = schema.copy()
+        for sample in df.columns:
+            if sample not in _schema:
+                _schema[sample] = pl.UInt32
+        df = df.select(
+            [pl.col(col).cast(_schema[col]) for col in df.columns]
+        )
+        metadf = df.select(metacols)
+        countdf = df.select(pl.exclude(metacols))
+        metadfs.append(metadf)
+        countdfs.append(countdf)
+    if len(metadfs) > 1:
+        assert all(metadfs[0].equals(df) for df in metadfs[1:])
+    # concatenate the countdfs (horizontal)
+    countdf = pl.concat(countdfs, how='horizontal')
+    countdf.write_ipc(prefix.with_name(prefix.name + "_counts.arrow"), compression='zstd')
+    metadfs[0].write_ipc(prefix.with_name(prefix.name + "_meta.arrow"), compression='zstd')

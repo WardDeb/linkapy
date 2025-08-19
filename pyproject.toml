@@ -38,3 +38,9 @@ docs = [
 build = [
     "build"
 ]
+[project.scripts]
+linkapy = "linkapy.CLI:linkapy"
+[tool.ruff]
+exclude = [
+  "docs",
+]

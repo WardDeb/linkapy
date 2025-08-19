@@ -14,12 +14,12 @@ pub fn parse_cools(
     _coolfiles: Py<PyList>,
     _regions: Py<PyList>,
     _regionlabels: Py<PyList>,
-    qc: bool,
     threads: usize,
-    obase: &str,
-    oregionfile: &str,
-    ocellfile: &str,
+    prefix: &str,
+    chromsizes: &str,
+    binsize: usize,
 ) -> PyResult<()> {
+    let mut chromsize_mode: bool = false;
     let mut coolfiles: Vec<String> = Vec::new();
     let mut regions: Vec<String> = Vec::new();
     let mut regionlabels: Vec<String> = Vec::new();
@@ -28,131 +28,86 @@ pub fn parse_cools(
         regions = _regions.extract(py).expect("Failed to retrieve regions.");
         regionlabels = _regionlabels.extract(py).expect("Failed to retrieve region labels.");
     });
+    // regions and regionlabels should always be same length.
     assert_eq!(regions.len(), regionlabels.len());
-    println!("Parsing {} region files.", regions.len());
-    // Parse regions.
-    let mut parsed_regions: Vec<Region> = Vec::new();
-    for (_r, _l) in regions.into_iter().zip(regionlabels.into_iter()) {
-        parsed_regions.extend(parse_region(_r, _l));
-    }
-    parsed_regions.sort_by(|a, b| {
-        // First, compare by `chrom`
-        let chrom_order = a.chrom.cmp(&b.chrom);
-        if chrom_order != Ordering::Equal {
-            return chrom_order;
+    // if regions is empty, run with chromsizes
+    if regions.is_empty() {
+        chromsize_mode = true;
+    };
+
+    match chromsize_mode {
+        true => {
+            println!("Chromsize mode.")
         }
-
-        // If chrom is the same, compare by the first value in `start`
-        a.start[0].cmp(&b.start[0])
-    });
-    println!("Found {} regions.", parsed_regions.len());
-    println!("Launching a pool with {} threads to parse allcool files.", threads);
-    let pool = ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
-    if qc{
-        // QC
-        // Collapse the cells to keep things lean and mean
-        println!("Starting QC.");
-        let mut sum_mat: Vec<Vec<f32>> = vec![vec![f32::NAN; 301]; parsed_regions.len()];
-        let mut count_mat: Vec<Vec<f32>> = vec![vec![f32::NAN; 301]; parsed_regions.len()];
-
-        let _ = coolfiles
-            .iter()
-            .for_each(|coolfile| {
-                let coolregions = parse_cool(coolfile);
-                for (ix, region) in parsed_regions.iter().enumerate() {
-                    coolregions
-                        .iter()
-                        .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] -100 && x.pos <= (*region.end.last().unwrap() + 100))
-                        .for_each(|x| {
-                            // We know these have value now. 
-                            let frac = x.meth as f32 / x.total as f32;
-                            // map pos between 0 and 100
-                            let pos;
-                            if x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap() {
-                                pos = ((x.pos - region.start[0]) as f32 / (*region.end.last().unwrap() - region.start[0]) as f32 * 99.0).round() as usize;
-                                if sum_mat[ix][pos+100].is_nan() {
-                                    sum_mat[ix][pos+100] = frac;
-                                    count_mat[ix][pos+100] = 1.0;
-                                } else {
-                                    sum_mat[ix][pos+100] += frac;
-                                    count_mat[ix][pos+100] += 1.0;
-                                }
-                            } else {
-                                if x.pos < region.start[0] {
-                                    pos = (region.start[0] - x.pos) as usize;
-                                } else {
-                                    pos = (200 + x.pos - region.end.last().unwrap()) as usize;
-                                }
-                                if sum_mat[ix][pos].is_nan() {
-                                    sum_mat[ix][pos] = frac;
-                                    count_mat[ix][pos] = 1.0;
-                                } else {
-                                    sum_mat[ix][pos] += frac;
-                                    count_mat[ix][pos] += 1.0;
-                                }
-                            }
-                        });
-                }
-            });
-        let mut mean_mat = TriMat::new((parsed_regions.len(), 301));
-        for (ix, row) in sum_mat.iter().enumerate() {
-            for (pos, &sum_val) in row.iter().enumerate() {
-                let count_val = count_mat[ix][pos];
-                if !count_val.is_nan() {
-                    mean_mat.add_triplet(ix, pos, sum_val / count_val);
-                }
+        false => {
+            // Parse regions.
+            let mut parsed_regions: Vec<Region> = Vec::new();
+            for (_r, _l) in regions.into_iter().zip(regionlabels.into_iter()) {
+                parsed_regions.extend(parse_region(_r, _l));
             }
-        }
+            parsed_regions.sort_by(|a, b| {
+                // First, compare by `chrom`
+                let chrom_order = a.chrom.cmp(&b.chrom);
+                if chrom_order != Ordering::Equal {
+                    return chrom_order;
+                }
 
-        let oqc = format!("{}.qc.mtx", obase);
-        write_matrix_market(oqc, &mean_mat).unwrap();
-    }
+                // If chrom is the same, compare by the first value in `start`
+                a.start[0].cmp(&b.start[0])
+            });
 
-    {
-        // Metrics
-        let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
-            coolfiles
-                .par_iter()
-                .map(|coolfile| {
-                    let coolregions = parse_cool(coolfile);
-                    parsed_regions
-                        .par_iter()
-                        .map(|region| {
-                            let (meth_sum, total_sum , sites) = coolregions
-                                .iter()
-                                .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
-                                .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
-                                    (
-                                        if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
-                                        if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
-                                        if sites.is_nan() { 1.0 } else { sites + 1.0 },
-                                    )
-                                });
-                            (meth_sum, total_sum, sites)
-                        })
-                .collect()
-                })
-        .collect()
-        });
-        let (methm, covm, sitem) = tupvec_to_sparse(regvals);
-        println!("Finished parsing allcool files.");
-        // Create three outfiles from obase
-        let ometh = format!("{}.meth.mtx", obase);
-        let ocov = format!("{}.cov.mtx", obase);
-        let osite = format!("{}.site.mtx", obase);
-        write_matrix_market(ometh, &methm).unwrap();
-        write_matrix_market(ocov, &covm).unwrap();
-        write_matrix_market(osite, &sitem).unwrap();
-        println!("Matrices written.");
-        println!("Writing metadata to {}.", oregionfile);
-        let mut ofile = File::create(oregionfile).unwrap();
-        writeln!(ofile, "chrom\tstart\tend\tname\tclass").unwrap();
-        for region in parsed_regions {
-            writeln!(ofile, "{}\t{}\t{}\t{}\t{}", region.chrom, region.start[0], *region.end.last().unwrap(), region.name, region.class).unwrap();
-        }
-        let mut ofile = File::create(ocellfile).unwrap();
-        for coolfile in coolfiles {
-            writeln!(ofile, "{}", coolfile).unwrap();
+            println!("Found {} regions.", parsed_regions.len());
+            println!("Launching a pool with {} threads to parse allcool files.", threads);
+            let pool = ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+
+            // Metrics
+            let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
+                coolfiles
+                    .par_iter()
+                    .map(|coolfile| {
+                        let coolregions = parse_cool(coolfile);
+                        parsed_regions
+                            .par_iter()
+                            .map(|region| {
+                                let (meth_sum, total_sum , sites) = coolregions
+                                    .iter()
+                                    .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
+                                    .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
+                                        (
+                                            if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
+                                            if total_acc.is_nan() { x.total as f32 } else { total_acc + x.total as f32 },
+                                            if sites.is_nan() { 1.0 } else { sites + 1.0 },
+                                        )
+                                    });
+                                (meth_sum, total_sum, sites)
+                            })
+                    .collect()
+                    })
+            .collect()
+            });
+            let (methm, covm, sitem) = tupvec_to_sparse(regvals);
+            println!("Finished parsing allcool files.");
+            // Define output files taken the prefix.
+            let ometh = format!("{}.meth.mtx", prefix);
+            let ocov = format!("{}.cov.mtx", prefix);
+            let osite = format!("{}.site.mtx", prefix);
+            let oregionfile: String = format!("{}.regions.tsv", prefix);
+            let ocellfile: String = format!("{}.cells.tsv", prefix);
+            write_matrix_market(ometh, &methm).unwrap();
+            write_matrix_market(ocov, &covm).unwrap();
+            write_matrix_market(osite, &sitem).unwrap();
+            println!("Matrices written.");
+            println!("Writing metadata to {}.", oregionfile);
+            let mut ofile = File::create(oregionfile).unwrap();
+            writeln!(ofile, "chrom\tstart\tend\tname\tclass").unwrap();
+            for region in parsed_regions {
+                writeln!(ofile, "{}\t{}\t{}\t{}\t{}", region.chrom, region.start[0], *region.end.last().unwrap(), region.name, region.class).unwrap();
+            }
+            let mut ofile = File::create(ocellfile).unwrap();
+            for coolfile in coolfiles {
+                writeln!(ofile, "{}", coolfile).unwrap();
+            }
+
         }
     }
     Ok(())
@@ -211,6 +166,7 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
     // Two options: gz (bed.gz), bed(bed)
     match suffix {
         "gz" => {
+            println!("Region parse match gz");
             let reader = BufReader::new(GzDecoder::new(File::open(reg).unwrap()));
             let lines = reader.lines();
             for line in lines {
@@ -255,6 +211,7 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
             regions
         },
         "bed" => {
+            println!("Region parse match bed");
             let reader = BufReader::new(File::open(reg).unwrap());
             let lines = reader.lines();
             for line in lines {
