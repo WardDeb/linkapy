@@ -1,4 +1,3 @@
-from pathlib import Path
 from importlib import metadata
 import click
 from rich import print
