@@ -19,6 +19,8 @@ def linkapy() -> None:
 @click.option('--mudata', is_flag=True, help='Aside from the matrices, also save the data in a MuData object.')
 @click.option('--methylation_pattern', type=str, default=("*GC*",), multiple=True, help='Pattern to match methylation files. Can be specified multiple times. Note that every pattern yields a separate matrix.')
 @click.option('--transcriptome_pattern', type=str, default=("*tsv",), multiple=True, help='Pattern to match transcriptome files. Can be specified multiple times. Note that every pattern yields a separate matrix.')
+@click.option('--methylation_pattern_names', type=str, default=(), multiple=True, help='Labels for every methylation pattern provided. Can be specified multiple times. The name will be used to name the output files. If not provided. The asterisks will be removed from the pattern to yield labels.')
+@click.option('--transcriptome_pattern_names', type=str, default=(), multiple=True, help='Labels for every transcriptome pattern provided. Can be specified multiple times. The name will be used to name the output files. If not provided. The asterisks will be removed from the pattern to yield labels.')
 @click.option('--NOMe', is_flag=True, help='Assumes data under methylation_path is NOMe data. Setting this flag is the same as using "--methylation_pattern *GCHN* --methylation_pattern *WCGN*"')
 @click.option('--threads', '-j', type=int, default=1, help='Number of threads to use for processing. Default is 1.')
 @click.option('--chromsizes', '-c', type=click.Path(exists=True), help='Path to the chromsizes file for genome reference. Only needed if no regions are provided.')
@@ -43,7 +45,7 @@ def parsing(ctx, **kwargs) -> None:
         click.echo(ctx.get_help())
         print("Methylation data requires either a chromsizes file or at least one regions file.")
         return
-    
+
     try:
         from linkapy.parsing import Linkapy_Parser
         lp = Linkapy_Parser(
@@ -52,7 +54,9 @@ def parsing(ctx, **kwargs) -> None:
             output=kwargs.get('output'),
             mudata=kwargs.get('mudata'),
             methylation_pattern=kwargs.get('methylation_pattern'),
+            methylation_pattern_names=kwargs.get('methylation_pattern_names'),
             transcriptome_pattern=kwargs.get('transcriptome_pattern'),
+            transcriptome_pattern_names=kwargs.get('transcriptome_pattern_names'),
             NOMe=kwargs.get('NOMe'),
             threads=kwargs.get('threads'),
             chromsizes=kwargs.get('chromsizes'),

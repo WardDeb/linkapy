@@ -35,8 +35,10 @@ class Linkapy_Parser:
         transcriptome_path=None, 
         output='linkapy_output', 
         mudata=False, 
-        methylation_pattern=('*GC*',), 
+        methylation_pattern=('*GC*',),
+        methylation_pattern_names=(),
         transcriptome_pattern=('*tsv',), 
+        transcriptome_pattern_names=(),
         NOMe=False, 
         threads=1, 
         chromsizes=None, 
@@ -66,18 +68,25 @@ class Linkapy_Parser:
         self.logger.info(f"Logging under {self.logfile}")
 
         # Check parameters
-        if not methylation_path and not transcriptome_path:
+        if not any((methylation_path, transcriptome_path)):
             self.logger.error("No methylation_path or transcriptome_path provided. Exiting.")
             raise ValueError("Missing either transcritpome or methylation path")
-        if methylation_path and (not chromsizes and not regions):
+        if methylation_path and not any((chromsizes, regions)):
             self.logger.error("Methylation data requires either a chromsizes file or at least one regions file.")
             raise ValueError("Missing regions or chromsizes")
         if chromsizes and regions:
             self.logger.warning("Both chromsizes and regions provided. Chromsizes will be ignored.")
             chromsizes = None
+        if methylation_pattern and not methylation_pattern_names:
+            self.logger.info("No methylation pattern names provided. The asterisks will be stripped from the patterns to yield labels.")
+            methylation_pattern_names = tuple([p.replace('*', '') for p in methylation_pattern])
+        if transcriptome_pattern and not transcriptome_pattern_names:
+            self.logger.info("No transcriptome pattern names provided. The asterisks will be stripped from the patterns to yield labels.")
+            transcriptome_pattern_names = tuple([p.replace('*', '') for p in transcriptome_pattern])
         if NOMe:
             self.logger.info("NOMe flag set. Methylation pattern will be set to ('*GCHN*', '*WCGN*')")
             methylation_pattern = ('*GCHN*', '*WCGN*')
+            methylation_pattern_names = ('Acc', 'Meth')
         
         # Set up paths
         self.methylation_path = Path(methylation_path) if methylation_path else None
@@ -187,7 +196,7 @@ class Linkapy_Parser:
                     [str(i) for i in self.regions] if self.regions else [],
                     _region_labels,
                     self.threads,
-                    _prefix.name,
+                    str(_prefix),
                     str(self.chromsizes) if self.chromsizes else 'none',
                     self.binsize if self.binsize else 0,
                 )
