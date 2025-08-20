@@ -16,7 +16,6 @@ def linkapy() -> None:
 @click.option('--methylation_path', '-m', type=click.Path(exists=True), help='Path to the directory containing methylation data. Will be searched recursively to match pattern.')
 @click.option('--transcriptome_path', '-t', type=click.Path(exists=True), help='Path to the directory containing transcriptome data. Will be searched recursively to match pattern. Note that these should be featureCounts files.')
 @click.option('--output' ,'-o', type=click.Path(), default='linkapy_output', help='Output directory for the results. Default is "linkapy_output". RNA matrices will be written in arrow format, methylation derived matrices will be written in mtx format. Additionaly, if mudata is set, a MuData object is created as well.)')
-@click.option('--mudata', is_flag=True, help='Aside from the matrices, also save the data in a MuData object.')
 @click.option('--methylation_pattern', type=str, default=("*CG*.tsv",), multiple=True, help='Pattern to match methylation files. Can be specified multiple times. Note that every pattern yields a separate matrix.')
 @click.option('--transcriptome_pattern', type=str, default=("*.tsv",), multiple=True, help='Pattern to match transcriptome files. Can be specified multiple times. Note that every pattern yields a separate matrix.')
 @click.option('--methylation_pattern_names', type=str, default=(), multiple=True, help='Labels for every methylation pattern provided. Can be specified multiple times. The name will be used to name the output files. If not provided. The asterisks will be removed from the pattern to yield labels.')
@@ -58,7 +57,6 @@ def parsing(ctx, **kwargs) -> None:
             methylation_path=kwargs.get('methylation_path'),
             transcriptome_path=kwargs.get('transcriptome_path'),
             output=kwargs.get('output'),
-            mudata=kwargs.get('mudata'),
             methylation_pattern=kwargs.get('methylation_pattern'),
             methylation_pattern_names=kwargs.get('methylation_pattern_names'),
             transcriptome_pattern=kwargs.get('transcriptome_pattern'),

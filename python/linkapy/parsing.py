@@ -1,10 +1,19 @@
 from pathlib import Path
-import polars as pl
 import signal
 from rich.console import Console
 from rich.logging import RichHandler
 from linkapy.linkapy import parse_cools
 import logging
+import anndata as ad
+import mudata as md
+import numpy as np
+import scipy as sp
+import polars as pl
+import pandas as pd
+import numpy as np
+from Levenshtein import distance as ls_dist
+from difflib import SequenceMatcher
+from typing import List
 
 class Linkapy_Parser:
     '''
@@ -19,7 +28,6 @@ class Linkapy_Parser:
     :param str methylation_path: The path to the methylation directory (will be searched recursively!).
     :param str transcriptome_path: The path to the RNA output directory (will be searched recursively!).
     :param str output: The output directory where matrices will be written to. Defaults to current working directory in folder ('linkapy_output').
-    :param bool mudata: If set, a MuData object will be created from the matrices and written to the output folder. Defaults to False.
     :param tuple methylation_pattern: The glob pattern to search methylation path recursively. Defaults to ('GC'). Note that this is a tuple.
     :param tuple transcriptome_pattern: The glob pattern to search transcriptome path recursively. Defaults to ('tsv'). Note that this is a tuple.
     :param bool NOMe: If set, methylation_path will be searched for NOMe-seq data. The methylation path will be searched for patterns ('GCHN', 'WCGN').
@@ -34,8 +42,7 @@ class Linkapy_Parser:
         self, 
         methylation_path=None, 
         transcriptome_path=None, 
-        output='linkapy_output', 
-        mudata=False, 
+        output='linkapy_output',  
         methylation_pattern=('*GC*tsv.gz',),
         methylation_pattern_names=(),
         transcriptome_pattern=('*tsv',), 
@@ -109,7 +116,6 @@ class Linkapy_Parser:
         
         # settings and flags
         self.threads = threads
-        self.mudata = mudata
         self.methylation_pattern = methylation_pattern
         self.methylation_pattern_names = methylation_pattern_names
         self.transcriptome_pattern = transcriptome_pattern
@@ -126,7 +132,9 @@ class Linkapy_Parser:
         self._glob()
     
     def _validate(self):
-
+        '''
+        Validate the provided paths and parameters.
+        '''
         self.logger.info("Validating files and paths.")
         if self.methylation_path and not self.methylation_path.exists():
             self.logger.error(f"Methylation path {self.methylation_path} does not exist.")
@@ -162,6 +170,9 @@ class Linkapy_Parser:
                         self.logger.warning(f"Transcriptome pattern {_} doesn't contain an asterisk. Are you sure this is what you want ?")
         
     def _glob(self):
+        '''
+        Discover files to aggregate over based on the paths and patterns provided.
+        '''
         self.logger.info("Globbing files.")
         # If methylation_path is provided, there is at least one pattern (as per validate).
         # The asterisks are stripped form the patterns, and used as keys in a dictionary to keep the globs.
@@ -182,6 +193,9 @@ class Linkapy_Parser:
                 self.logger.info(f"Transcriptome search - pattern \'{pattern}\' = {len(_)} files found.")
 
     def parse(self):
+        '''
+        Parse the globbed files and create the different matrices and their corresponding metadata.
+        '''
         self.logger.info("Start parsing files.")
         # RNA
         if self.transcriptome_files:
@@ -220,8 +234,49 @@ class Linkapy_Parser:
                 )
                 signal.signal(signal.SIGINT, _original_handler)
 
+        self.logger.info("Creating MuData object.")
+        self.dump_mudata()
 
-def parse_rna(files, prefix):
+    def dump_mudata(self):
+        _adatas = []
+        _patterns = []
+        #if self.transcriptome_files:
+        if self.transcriptome_files:
+            for pattern in self.transcriptome_files:
+                self.logger.info(f"Creating anndata object for \'{pattern}\'")
+                _adatas.append(read_rna_to_anndata(self.output / 'matrices' / f'RNA_{pattern}'))
+                _patterns.append(f'RNA_{pattern}')
+                self.logger.info(f"anndata object for \'{pattern}\' with shape {_adatas[-1].shape}")
+        if self.methylation_files:
+            for pattern in self.methylation_files:
+                self.logger.info(f"Creating anndata object for \'{pattern}\'")
+                _adatas.append(read_meth_to_anndata(self.output / 'matrices' / f'METH_{pattern}'))
+                _patterns.append(f'METH_{pattern}')
+                self.logger.info(f"anndata object for \'{pattern}\' with shape {_adatas[-1].shape}")
+        _cells = [_adatas.obs.index.tolist() for _adatas in _adatas]
+        self.logger.info(f"{len(_adatas)} anndata objects in total.")
+        self.logger.info(f"Attempt to match cells across different anndata objects.")
+        renamed_obs, rename_df = match_cells(_cells, _patterns)
+        if renamed_obs:
+            self.logger.info("Matching of cells across anndata objects successfull.")
+            rename_df.to_csv(self.output / 'cell_renaming.tsv', sep='\t', index=False)
+            self.logger.info(f"Dataframe used to rename cells written to f{str(self.output / 'cell_renaming.tsv')}.")
+            for new_obs, _ad in zip(renamed_obs, _adatas):
+                _ad.obs.index = new_obs
+        self.logger.info("Saving MuData object.")
+        md.set_options(pull_on_update=False)
+        mudata = md.MuData(
+            {
+                pattern: _ad for pattern, _ad in zip(_patterns, _adatas)
+            }
+        )
+        mudata.write(self.output / f"{self.project}.h5mu")
+        self.logger.info(f"MuData object written to {self.output / f'{self.project}.h5mu'}")
+
+def parse_rna(files, prefix) -> None:
+    '''
+    Read one or more featureCount files, combine them and write them to a counts and metadata arrow file.
+    '''
     metacols = ["Geneid", "Chr", "Start", "End", "Strand", "Length"]
     schema = {
         'Geneid': pl.String,
@@ -245,6 +300,7 @@ def parse_rna(files, prefix):
         )
         metadf = df.select(metacols)
         countdf = df.select(pl.exclude(metacols))
+        countdf.columns = [c.split('.')[0] for c in countdf.columns]
         metadfs.append(metadf)
         countdfs.append(countdf)
     if len(metadfs) > 1:
@@ -255,177 +311,90 @@ def parse_rna(files, prefix):
     metadfs[0].write_ipc(prefix.with_name(prefix.name + "_meta.arrow"), compression='zstd')
 
 
-# class Parse_matrices:
-#     '''
-#     Parses matrices created previously (with Parse_scNMT) and creates a muon object (written to disk).
-#     This is then the starting point to downstream analysis.
+def read_rna_to_anndata(prefix) -> ad.AnnData:
+    '''
+    From a prefix, read the count matrix, and the metadata, combine them into an AnnData object.
+    '''
+    _counts = pl.read_ipc(prefix.with_name(prefix.name + "_counts.arrow"), memory_map=False).to_pandas()
+    _meta = pl.read_ipc(prefix.with_name(prefix.name + "_meta.arrow"), memory_map=False).to_pandas()
+    _meta.index = _meta['Geneid']
+    del _meta['Geneid']
+    return ad.AnnData(
+        X=sp.sparse.csr_matrix(_counts.values.T),
+        obs=pd.DataFrame(index=list(_counts.columns)),
+        var=_meta
+    )
 
-#     :param str matrixdir: Directory where the matrices can be found. (required)
-#     :param str project: Project name, similar to the one provided in the Parse_scNMT part. Defaults to 'scNMT' (optional)
-#     :param str ofile: Name of the output file, defaults to matrixdir / project.h5. (optional)
-#     '''
+def read_meth_to_anndata(prefix) -> ad.AnnData:
+    '''
+    From a prefix, read the methylation and coverage matrices, and their metadata, get the fractions and combine them into an AnnData object.
+    '''
+    np.seterr(divide='ignore', invalid='ignore')
+    methp = prefix.with_name(prefix.name + ".meth.mtx")
+    covp = prefix.with_name(prefix.name + ".cov.mtx")
+    cellp = prefix.with_name(prefix.name + ".cells.tsv")
+    regp = prefix.with_name(prefix.name + ".regions.tsv")
+    _m = sp.io.mmread(methp).todense()
+    _c = sp.io.mmread(covp).todense()
+    X = np.zeros_like(_m, dtype=float)
+    X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
+    X = sp.sparse.csr_matrix(X)
+    _obs = pl.read_csv(cellp, separator='\t', has_header=False).to_pandas()
+    _obs = pd.DataFrame(index=[Path(i).name.split('.')[0] for i in _obs['column_1']])
+    _var = pl.read_csv(regp, separator='\t', has_header=True).to_pandas()
+    _var.index = _var.index.astype(str)
+    return ad.AnnData(
+        X=X,
+        obs=_obs,
+        var=_var
+    )
 
-#     def __init__(self, matrixdir, project='scNMT', opath=None):
-#         self.matrixdir = Path(matrixdir)
-#         self.project = project
-#         if not opath:
-#             self.opath = self.matrixdir
-#         else:
-#             self.opath = Path(opath)
-#         self.opath.mkdir(parents=True, exist_ok=True)
-#         # Initiate a log
-#         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-#         _fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-#         # Logfile
-#         log_file = Path(self.opath / f"lap_Parse_matrices_{timestamp}_{uuid.uuid4().hex}.log")
-#         logging.basicConfig(level=logging.INFO)
-#         self.logger = logging.getLogger(str(log_file))
-#         file_handler = logging.FileHandler(log_file)
-#         # To file
-#         file_handler.setFormatter(_fmt)
-#         self.logger.addHandler(file_handler)
-#         self.logger.propagate = False
-
-#         _msg(self.logger, "Output directory: " + str(self.opath))
-#         self._assert_files()
-
-#     def _assert_files(self):
-#         self.rna = self.matrixdir / (self.project + '_rnadf.arrow')
-#         self.rnameta = self.matrixdir / (self.project + '_rnameta.arrow')
-#         # Accessibility part
-#         self.acc = {
-#             'cov': self.matrixdir / (self.project + '.acc.cov.mtx'),
-#             'meth': self.matrixdir / (self.project + '.acc.meth.mtx'),
-#             'site': self.matrixdir / (self.project + '.acc.site.mtx'),
-#             'cell': self.matrixdir / (self.project + '.acc.cell.tsv'),
-#             'reg': self.matrixdir / (self.project + '.acc.meta.tsv')
-#         }
-#         self.meth = {
-#             'cov': self.matrixdir / (self.project + '.meth.cov.mtx'),
-#             'meth': self.matrixdir / (self.project + '.meth.meth.mtx'),
-#             'site': self.matrixdir / (self.project + '.meth.site.mtx'),
-#             'cell': self.matrixdir / (self.project + '.meth.cell.tsv'),
-#             'reg': self.matrixdir / (self.project + '.meth.meta.tsv')
-#         }
-
-#         assert self.rna.exists()
-#         assert self.rnameta.exists()
-#         for _f in self.acc:
-#             assert self.acc[_f].exists()
-#         for _f in self.meth:
-#             assert self.meth[_f].exists()
+def match_cells(_l: List[List[str]], patterns: List[str]) -> tuple[List[List[str]], pd.DataFrame]|tuple[None, None]:
+    '''
+    Take a list of lists containing putative cell names. Per list, we need a 'best match'.
+    This is needed since often an assay or context specific pre- or postfix is used, and we want to match them for the mudata object.
+    '''
+    a = pd.DataFrame(np.nan, index=range(len(_l[0])), columns=range(len(_l)), dtype="string")
+    a[0] = _l[0]
+    # Start col_index at 1 since the first column is for the ref cells.
+    col_index = 1
+    for cell_list in _l[1:]:
+        row_index = 0
+        for refcell in _l[0]:
+            distances = [ls_dist(refcell, cell) for cell in cell_list]
+            top_matches = [cell for cell, dist in zip(cell_list, distances) if dist == min(distances)]
+            if len(top_matches) > 1 or not top_matches:
+                return (None, None)
+            a.at[row_index, col_index] = top_matches[0]
+            row_index += 1
+        col_index += 1
+    
+    # If any cellname is duplicated inside a column, return None
+    for col in a.columns:
+        if a[col].duplicated().any():
+            return (None, None)
+    
+    a['common_name'] = a.apply(lambda row: get_common_cellname(row.values), axis=1)
+    # Construct a 'renamed' nested list so that the obs can be renamed.
+    renl = []
+    for pos in range(len(a.columns) - 1):
+        _tlis = []
+        for _i,r in a.iterrows():
+            if pd.isna(r['common_name']):
+                _tlis.append(r[patterns[pos]])
+            else:
+                _tlis.append(r['common_name'])
+        renl.append(_tlis)
+    a.columns = patterns + ["common_name"]
+    return (renl, a)
 
 
-#     def create_mudata(self, aggtype='fraction'):
-#         # Some settings.
-#         np.seterr(divide='ignore', invalid='ignore')
-#         md.set_options(pull_on_update=False)
-
-#         _msg(self.logger, "-"*100 + "\n" + "Parse_matrices - create_mudata" + "\n" + "-"*100)
-#         _msg(self.logger, "Parsing RNA matrices")
-#         rnadf = pl.read_ipc(self.rna, memory_map=False).to_pandas()
-#         rnameta = pl.read_ipc(self.rnameta, memory_map=False).to_pandas()
-#         rnameta.index = rnameta['Geneid']
-#         del rnameta['Geneid']
-#         rna_adata = anndata.AnnData(
-#             X=sp.sparse.csr_matrix(rnadf.values.T),
-#             obs=pd.DataFrame(index= [i.replace('_RNA-seq', '').replace("_RNA", "") for i in rnadf.columns]),
-#             var=rnameta
-#         )
-#         _msg(self.logger, "Parsing RNA matrices")
-#         _msg(self.logger, f"adata for rna shape = {rna_adata.shape}")
-#         _msg(self.logger, "Parsing Accessibility matrices")
-#         _m = sp.io.mmread(self.acc['meth']).todense()
-#         _c = sp.io.mmread(self.acc['cov']).todense()
-#         if aggtype == 'fraction':
-#             X = np.zeros_like(_m, dtype=float)
-#             X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
-#             X = sp.sparse.csr_matrix(X)
-#         elif aggtype == 'sum':
-#             X = sp.sparse.csr_matrix(_m)
-#         _obs = pl.read_csv(self.acc['cell'], separator='\t', has_header=False).to_pandas()
-#         cell_names = []
-#         for i in _obs['column_1'].to_list():
-#             _n = Path(i).name.replace('.GCHN-Both.allc.tsv.gz', '').replace("_NOMe-seq", "").replace("_METH", "")
-#             cell_names.append(_n)
-#         _obs = pd.DataFrame(index = cell_names)
-#         _var = pl.read_csv(self.acc['reg'], separator='\t', has_header=True).to_pandas()
-#         # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
-#         _var = _var.drop_duplicates(subset='name', keep='first')
-#         X = X[:, _var.index]
-#         _var = _var.set_index('name')
-#         acc_adata = anndata.AnnData(
-#             X=X,
-#             obs=_obs,
-#             var=_var
-#         )
-#         _msg(self.logger, f"adata for accessibility shape = {acc_adata.shape}")
-#         _msg(self.logger, "Parsing Methylation matrices")
-#         _m = sp.io.mmread(self.meth['meth']).todense()
-#         _c = sp.io.mmread(self.meth['cov']).todense()
-#         if aggtype == 'fraction':
-#             X = np.zeros_like(_m, dtype=float)
-#             X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
-#             X = sp.sparse.csr_matrix(X)
-#         elif aggtype == 'sum':
-#             X = sp.sparse.csr_matrix(_m)
-#         _obs = pl.read_csv(self.meth['cell'], separator='\t', has_header=False).to_pandas()
-#         cell_names = []
-#         for i in _obs['column_1'].to_list():
-#             _n = Path(i).name.replace('.WCGN-Both.allc.tsv.gz', '').replace("_NOMe-seq", "").replace("_METH", "")
-#             cell_names.append(_n)
-#         _obs = pd.DataFrame(index = cell_names)
-#         _var = pl.read_csv(self.meth['reg'], separator='\t', has_header=True).to_pandas()
-#                 # Since there is no check for duplicated values in the regions. We deduplicate here (by name)
-#         _var = _var.drop_duplicates(subset='name', keep='first')
-#         X = X[:, _var.index]
-#         _var = _var.set_index('name')
-#         meth_adata = anndata.AnnData(
-#             X=X,
-#             obs=_obs,
-#             var=_var
-#         )
-#         _msg(self.logger, f"adata for methylation shape = {meth_adata.shape}")
-#         # muData
-#         _msg(self.logger, "Creating muData object.")
-#         # Take intersection of all obs
-#         _msg(self.logger, f"First observations for RNA data = {rna_adata.obs_names[:5]}")
-#         _msg(self.logger, f"First observations for ACC data = {acc_adata.obs_names[:5]}")
-#         _msg(self.logger, f"First observations for METH data = {meth_adata.obs_names[:5]}")
-
-#         # Sets of obs_names
-#         rna_set = set(rna_adata.obs_names)
-#         acc_set = set(acc_adata.obs_names)
-#         meth_set = set(meth_adata.obs_names)
-
-#         # Cells in all three
-#         fincells = list(rna_set & acc_set & meth_set)
-#         all_cells = rna_set | acc_set | meth_set
-#         dropped_cells = list(all_cells - set(fincells))
-
-#         _msg(self.logger, f"{len(fincells)} surviving cells, {len(dropped_cells)} dropped cells.")
-#         if len(fincells) == 0:
-#             _msg(self.logger, "No cells in common between RNA, ACC and METH data. Exiting.", lvl='error')
-#             sys.exit()
-#         if len(dropped_cells) > 0:
-#             _msg(self.logger, f"Dropped cells = {dropped_cells}")
-#             for _cell in dropped_cells:
-#                 _msg(self.logger, f"Cell {_cell} in RNA = {_cell in rna_set}, ACC = {_cell in acc_set}, METH = {_cell in meth_set}")
-#         _msg(self.logger, f"Creating object with {len(fincells)} observations.")
-#         rna_adata = rna_adata[rna_adata.obs_names.isin(fincells)].copy()
-#         acc_adata = acc_adata[acc_adata.obs_names.isin(fincells)].copy()
-#         meth_adata = meth_adata[meth_adata.obs_names.isin(fincells)].copy()
-#         # Assert variables in acc / meth are equal
-#         assert acc_adata.var.index.equals(meth_adata.var.index)
-#         _mu = md.MuData(
-#             {
-#                 "RNA": rna_adata,
-#                 "ACC": acc_adata,
-#                 "METH": meth_adata
-#             }
-#         )
-#         # Write to disk.
-#         _of = self.opath / f"{self.project}.h5mu"
-#         _mu.write(_of)
-#         _msg(self.logger, f"mudata object written to {_of}")
+def get_common_cellname(cellnames: List[str]) -> str:
+    ref = cellnames[0]
+    for name in cellnames[1:]:
+        sm = SequenceMatcher(None, ref, name)
+        match = sm.find_longest_match(0, len(ref), 0, len(name))
+        ref = ref[match.a: match.a + match.size]
+        if not ref:
+            return np.nan
+    return ref.strip("_.-")
