@@ -1,6 +1,7 @@
 from pathlib import Path
 import polars as pl
 import signal
+from rich.console import Console
 from rich.logging import RichHandler
 from linkapy.linkapy import parse_cools
 import logging
@@ -35,7 +36,7 @@ class Linkapy_Parser:
         transcriptome_path=None, 
         output='linkapy_output', 
         mudata=False, 
-        methylation_pattern=('*GC*',),
+        methylation_pattern=('*GC*tsv.gz',),
         methylation_pattern_names=(),
         transcriptome_pattern=('*tsv',), 
         transcriptome_pattern_names=(),
@@ -46,6 +47,7 @@ class Linkapy_Parser:
         blacklist=None, 
         binsize=10000, 
         project='linkapy',
+        verbose=False
     ):
         self.output = Path(output)
         self.output.mkdir(parents=True, exist_ok=True)
@@ -54,17 +56,27 @@ class Linkapy_Parser:
         # Set up log
         self.logfile = self.output / f'{self.project}.log'
         self.logger = logging.getLogger()
-        self.logger.setLevel(logging.INFO)
         rich_handler = RichHandler(rich_tracebacks=True, show_time=False, show_level=True, show_path=False)
-        rich_handler.setLevel(logging.DEBUG)
         _fmt = logging.Formatter('%(levelname)s - %(asctime)s - %(message)s', datefmt="%H:%M:%S")
         file_handler = logging.FileHandler(self.logfile)
-        file_handler.setLevel(logging.DEBUG)
+        
         file_handler.setFormatter(_fmt)
+        # Set verbosity
+        if verbose:
+            self.logger.setLevel(logging.DEBUG)
+            file_handler.setLevel(logging.DEBUG)
+            rich_handler.setLevel(logging.DEBUG)
+        else:
+            self.logger.setLevel(logging.INFO)
+            file_handler.setLevel(logging.INFO)
+            rich_handler.setLevel(logging.INFO)
+            
 
         self.logger.addHandler(rich_handler)
         self.logger.addHandler(file_handler)
-        self.logger.info(f"Linkapy Parser - project {self.project}")
+
+        console = Console()
+        console.rule("[bold green]Linkapy Parser[/bold green]")
         self.logger.info(f"Logging under {self.logfile}")
 
         # Check parameters
@@ -77,15 +89,15 @@ class Linkapy_Parser:
         if chromsizes and regions:
             self.logger.warning("Both chromsizes and regions provided. Chromsizes will be ignored.")
             chromsizes = None
-        if methylation_pattern and not methylation_pattern_names:
+        if methylation_pattern and not methylation_pattern_names and not NOMe:
             self.logger.info("No methylation pattern names provided. The asterisks will be stripped from the patterns to yield labels.")
             methylation_pattern_names = tuple([p.replace('*', '') for p in methylation_pattern])
         if transcriptome_pattern and not transcriptome_pattern_names:
             self.logger.info("No transcriptome pattern names provided. The asterisks will be stripped from the patterns to yield labels.")
             transcriptome_pattern_names = tuple([p.replace('*', '') for p in transcriptome_pattern])
         if NOMe:
-            self.logger.info("NOMe flag set. Methylation pattern will be set to ('*GCHN*', '*WCGN*')")
-            methylation_pattern = ('*GCHN*', '*WCGN*')
+            self.logger.info("NOMe flag set. Methylation pattern will be set to ('*GCHN*.tsv.gz', '*WCGN*tsv.gz'), names to ('Acc', 'Meth').")
+            methylation_pattern = ('*GCHN*tsv.gz', '*WCGN*.tsv.gz')
             methylation_pattern_names = ('Acc', 'Meth')
         
         # Set up paths
@@ -99,8 +111,14 @@ class Linkapy_Parser:
         self.threads = threads
         self.mudata = mudata
         self.methylation_pattern = methylation_pattern
+        self.methylation_pattern_names = methylation_pattern_names
         self.transcriptome_pattern = transcriptome_pattern
+        self.transcriptome_pattern_names = transcriptome_pattern_names
         self.binsize = binsize
+
+        self.logger.debug("Linkapy Parser set up. Parameters:")
+        for k, v in self.__dict__.items():
+            self.logger.debug(f"{k}: {v}")
 
         # Validate paths and files.
         self._validate()
@@ -150,11 +168,11 @@ class Linkapy_Parser:
         
         if self.methylation_path:
             self.methylation_files = {}
-            for pattern in self.methylation_pattern:
+            for pattern, name in zip(self.methylation_pattern, self.methylation_pattern_names):
                 _ = list(self.methylation_path.rglob(pattern))
                 assert any(_), f"No files found for pattern \'{pattern}\' in {self.methylation_path}"
-                self.methylation_files[pattern.replace('*', '')] = _
-                self.logger.info(f"Methylation search - pattern \'{pattern}\' = {len(_)} files found.")
+                self.methylation_files[name] = _
+                self.logger.info(f"Methylation search - pattern \'{pattern}\' - name \'{name}\' = {len(_)} files found.")
         if self.transcriptome_path:
             self.transcriptome_files = {}
             for pattern in self.transcriptome_pattern:
