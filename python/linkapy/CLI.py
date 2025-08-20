@@ -33,13 +33,13 @@ def parsing(ctx, **kwargs) -> None:
     Either methylation_path or transcriptome_path must be provided.
     '''
 
-    if not kwargs.get('methylation_path') and not kwargs.get('transcriptome_path'):
+    if not any((kwargs.get('methylation_path'), kwargs.get('transcriptome_path'))):
         click.echo(ctx.get_help())
         print("Provide either a methylation path and/or a transcriptome path.")
         return
     
 
-    if kwargs.get('methylation_path') and (not kwargs.get('chromsizes') and not kwargs.get('regions')):
+    if kwargs.get('methylation_path') and not any((kwargs.get('chromsizes'), kwargs.get('regions'))):
         click.echo(ctx.get_help())
         print("Methylation data requires either a chromsizes file or at least one regions file.")
         return
