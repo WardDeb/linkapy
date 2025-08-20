@@ -14,7 +14,6 @@ def test_Linkapy_Parser(tmp_path):
         methylation_path = str(tmp_path),
         transcriptome_path = str(tmp_path),
         output = str(tmp_path),
-        mudata = True,
         methylation_pattern = ('*GC*',),
         transcriptome_pattern = ('*tsv',),
         NOMe = False,
