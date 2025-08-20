@@ -10,7 +10,6 @@ import numpy as np
 import scipy as sp
 import polars as pl
 import pandas as pd
-import numpy as np
 from Levenshtein import distance as ls_dist
 from difflib import SequenceMatcher
 from typing import List
@@ -255,7 +254,7 @@ class Linkapy_Parser:
                 self.logger.info(f"anndata object for \'{pattern}\' with shape {_adatas[-1].shape}")
         _cells = [_adatas.obs.index.tolist() for _adatas in _adatas]
         self.logger.info(f"{len(_adatas)} anndata objects in total.")
-        self.logger.info(f"Attempt to match cells across different anndata objects.")
+        self.logger.info("Attempt to match cells across different anndata objects.")
         renamed_obs, rename_df = match_cells(_cells, _patterns)
         if renamed_obs:
             self.logger.info("Matching of cells across anndata objects successfull.")
