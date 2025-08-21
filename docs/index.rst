@@ -13,3 +13,4 @@ Linkapy - a general framework to work with tri-modal sequencing data.
 
    content/installation
    content/usage
+   autoapi/index
