@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use sprs::{CsMat, TriMat};
 use sprs::io::write_matrix_market;
 
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 pub fn parse_cools(
     py: Python<'_>,
@@ -18,7 +19,7 @@ pub fn parse_cools(
     threads: usize,
     prefix: &str,
     chromsizes: &str,
-    binsize: u32,
+    binsize: u32
 ) -> PyResult<()> {
     // Set up the logging from python
     let logging = PyModule::import(py, "logging")?;
@@ -164,10 +165,10 @@ fn parse_cool(_f: &str) -> Vec<CoolRegion> {
                 let total = fields[5].parse::<u32>().unwrap();
                 coolregions.push(
                     CoolRegion{
-                        chrom: chrom,
-                        pos: pos,
-                        meth: meth,
-                        total: total,
+                        chrom,
+                        pos,
+                        meth,
+                        total,
                     }
                 );
             }
@@ -205,22 +206,21 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
                 let chrom = fields[0].to_string();
                 let start = fields[1].to_string();
                 let end = fields[2].to_string();
-                let name: String;
-                if fields.len() > 3 {
-                    name = fields[3].to_string();
+                let name: String = if fields.len() > 3 {
+                    fields[3].to_string()
                 } else {
-                    name = format!("{}:{}-{}", chrom, start, end);
-                }
+                    format!("{}:{}-{}", chrom, start, end)
+                };
                 // check if start, end have commas
                 if start.contains(",") {
                     let start: Vec<u32> = start.split(',').map(|x| x.parse::<u32>().unwrap()).collect();
                     let end: Vec<u32> = end.split(',').map(|x| x.parse::<u32>().unwrap()).collect();
                     regions.push(
                         Region{
-                            chrom: chrom,
-                            start: start,
-                            end: end,
-                            name: name,
+                            chrom,
+                            start,
+                            end,
+                            name,
                             class: class.to_string()
                         }
                     );
@@ -229,10 +229,10 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
                     let end = end.parse::<u32>().unwrap();
                     regions.push(
                         Region{
-                            chrom: chrom,
+                            chrom,
                             start: vec![start],
                             end: vec![end],
-                            name: name,
+                            name,
                             class: class.to_string()
                         }
                     );
