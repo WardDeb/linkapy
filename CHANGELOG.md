@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0](https://github.com/WardDeb/linkapy/compare/v1.1.0...v1.2.0) (2025-08-21)
+
+
+### Features
+
+* chromsizes / bins mode included ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+* CLI ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+* drop scNMT specificity for more general RNA/Methylation assays ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+* obs matching feature to identify common cells between assays based on edit distance ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+* pattern names to rename assays ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+* verbose mode ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+
+
+### Bug Fixes
+
+* summarization on half-open intervals ([e87602a](https://github.com/WardDeb/linkapy/commit/e87602a99a3a7c03c05254dcbdbbdeb765fd18d6))
+
 ## [1.1.0](https://github.com/WardDeb/linkapy/compare/v1.0.0...v1.1.0) (2025-07-29)
 
 
