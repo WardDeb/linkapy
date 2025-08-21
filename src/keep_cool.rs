@@ -185,7 +185,7 @@ fn parse_region(reg: String, class: String) -> Vec<Region> {
     let sample = reg.clone();
 
     // Get suffix from reg
-    let suffix = reg.split('.').last().unwrap();
+    let suffix = reg.split('.').next_back().unwrap();
     // Two options: gz (bed.gz), bed(bed)
     let reader: Box<dyn BufRead> = match suffix {
         "gz" => {
