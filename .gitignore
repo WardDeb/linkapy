@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+g Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -165,3 +165,4 @@ cython_debug/
 linkapi.py
 linkcmd.sh
 test.sh
+Cargo.lock
