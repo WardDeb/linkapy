@@ -15,6 +15,7 @@ pub fn parse_cools(
     py: Python<'_>,
     _coolfiles: Py<PyList>,
     _regions: Py<PyList>,
+    _blacklist: Py<PyList>,
     _regionlabels: Py<PyList>,
     threads: usize,
     prefix: &str,
@@ -28,13 +29,32 @@ pub fn parse_cools(
     let mut coolfiles: Vec<String> = Vec::new();
     let mut regions: Vec<String> = Vec::new();
     let mut regionlabels: Vec<String> = Vec::new();
+    let mut blacklist: Vec<String> = Vec::new();
+
     Python::with_gil(|py| {
         coolfiles = _coolfiles.extract(py).expect("Failed to retrieve allcoolfiles.");
         regions = _regions.extract(py).expect("Failed to retrieve regions.");
         regionlabels = _regionlabels.extract(py).expect("Failed to retrieve region labels.");
+        blacklist = _blacklist.extract(py).expect("Failed to retrieve blacklist regions.");
     });
     // regions and regionlabels should always be same length.
     assert_eq!(regions.len(), regionlabels.len());
+
+
+    let blacklist_regions: Option<Vec<Region>> = if blacklist.is_empty() {
+        logger.call_method1("info", ("\'keep_cool\': No blacklist provided.",))?;
+        None
+    } else {
+        let mut blacklist_regions: Vec<Region> = Vec::new();
+        for _b in blacklist.into_iter() {
+            blacklist_regions.extend(parse_region(_b, "blacklist".to_string()));
+        }
+        logger.call_method1(
+            "info",
+            (format!("\'keep_cool\': Blacklist(s) parsed. {} regions.", blacklist_regions.len()),)
+        )?;
+        Some(blacklist_regions)
+    };
 
     let parsed_regions = if regions.is_empty() {
             logger.call_method1("info", ("\'keep_cool\': running in chromsize mode.",))?;
@@ -78,7 +98,16 @@ pub fn parse_cools(
                     .map(|region| {
                         let (meth_sum, total_sum , sites) = coolregions
                             .iter()
-                            .filter(|x| x.chrom == region.chrom && x.pos >= region.start[0] && x.pos <= *region.end.last().unwrap())
+                            .filter(|x| {
+                                x.chrom == region.chrom 
+                                    && x.pos >= region.start[0] 
+                                    && x.pos < *region.end.last().unwrap()
+                                    && blacklist_regions.as_ref().is_none_or(|blacklist| {
+                                        !blacklist.iter().any(|bl| {
+                                            bl.chrom == x.chrom && x.pos >= bl.start[0] && x.pos < *bl.end.last().unwrap()
+                                        })
+                                    })
+                            })
                             .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
                                 (
                                     if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },

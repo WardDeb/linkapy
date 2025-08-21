@@ -225,6 +225,7 @@ class Linkapy_Parser:
                 parse_cools(
                     [str(i) for i in files],
                     [str(i) for i in self.regions] if self.regions else [],
+                    [str(i) for i in self.blacklist] if self.blacklist else [],
                     _region_labels,
                     self.threads,
                     str(_prefix),
