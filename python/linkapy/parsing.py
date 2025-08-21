@@ -259,7 +259,7 @@ class Linkapy_Parser:
         if renamed_obs:
             self.logger.info("Matching of cells across anndata objects successfull.")
             rename_df.to_csv(self.output / 'cell_renaming.tsv', sep='\t', index=False)
-            self.logger.info(f"Dataframe used to rename cells written to f{str(self.output / 'cell_renaming.tsv')}.")
+            self.logger.info(f"Dataframe used to rename cells written to {str(self.output / 'cell_renaming.tsv')}.")
             for new_obs, _ad in zip(renamed_obs, _adatas):
                 _ad.obs.index = new_obs
         self.logger.info("Saving MuData object.")
