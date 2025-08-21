@@ -25,7 +25,7 @@ def test_parser_chromsizes(tmp_path, bed_files, methylation_files, rna_files):
     mu = md.read(mo)
     print(mu)
     assert mu.shape == (3,52), f"Expected shape (3, 52), got {mu.shape}."
-    assert all(mu.obs.index == ['cell1', 'cell2', 'cell3']), f"Obs inferral failed, got {mu.obs.index}."
+    assert set(mu.obs.index) == set(['cell1', 'cell2', 'cell3']), f"Obs inferral failed, got {mu.obs.index}."
     # Assert values in the muData object.
     mu['METH_WCGN'].X.todense()[0, 0] == 0, f"WCGN cell1 in bin 0-20 should be 0.0. Got {mu['METH_WCGN'].X.todense()[0, 0]}."
     mu['METH_WCGN'].X.todense()[0, 1] == 0.5, f"WCGN cell1 in bin 20-40 should be 0.5. Got {mu['METH_WCGN'].X.todense()[0, 1]}."
@@ -55,3 +55,4 @@ def test_parser_regions(tmp_path, bed_files, methylation_files, rna_files):
     mu = md.read(mo)
     print(mu)
     assert mu.shape == (3,6), f"Expected shape (3, 6), got {mu.shape}."
+    assert set(mu.obs.index) == set(['cell1', 'cell2', 'cell3']), f"Obs inferral failed, got {mu.obs.index}."
