@@ -319,11 +319,12 @@ def read_rna_to_anndata(prefix) -> ad.AnnData:
     _meta = pl.read_ipc(prefix.with_name(prefix.name + "_meta.arrow"), memory_map=False).to_pandas()
     _meta.index = _meta['Geneid']
     del _meta['Geneid']
-    return ad.AnnData(
+    annd = ad.AnnData(
         X=sp.sparse.csr_matrix(_counts.values.T),
         obs=pd.DataFrame(index=list(_counts.columns)),
         var=_meta
     )
+    return annd[annd.obs.sort_index().index, :].copy()
 
 def read_meth_to_anndata(prefix) -> ad.AnnData:
     '''
@@ -339,11 +340,12 @@ def read_meth_to_anndata(prefix) -> ad.AnnData:
     _obs = pd.DataFrame(index=[Path(i).name.split('.')[0] for i in _obs['column_1']])
     _var = pl.read_csv(regp, separator='\t', has_header=True).to_pandas()
     _var.index = _var.index.astype(str)
-    return ad.AnnData(
+    annd = ad.AnnData(
         X=X,
         obs=_obs,
         var=_var
     )
+    return annd[annd.obs.sort_index().index, :].copy()
 
 def match_cells(_l: List[List[str]], patterns: List[str]) -> tuple[List[List[str]], pd.DataFrame]|tuple[None, None]:
     '''
