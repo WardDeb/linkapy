@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1](https://github.com/WardDeb/linkapy/compare/v1.2.0...v1.2.1) (2025-08-22)
+
+
+### Bug Fixes
+
+* drop dense pass in mudata dump to avoid loss of NA information ([a94300e](https://github.com/WardDeb/linkapy/commit/a94300e3b45bab70e7dc9c90fa89f52680237fa1))
+* frac moved to rust code  ([a94300e](https://github.com/WardDeb/linkapy/commit/a94300e3b45bab70e7dc9c90fa89f52680237fa1))
+* Retain zero-nan discrimination in mudata creation ([#23](https://github.com/WardDeb/linkapy/issues/23)) ([a94300e](https://github.com/WardDeb/linkapy/commit/a94300e3b45bab70e7dc9c90fa89f52680237fa1))
+
 ## [1.2.0](https://github.com/WardDeb/linkapy/compare/v1.1.0...v1.2.0) (2025-08-21)
 
 
