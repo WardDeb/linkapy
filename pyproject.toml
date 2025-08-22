@@ -8,12 +8,13 @@ module-name = "linkapy"
 bindings = "pyo3"
 
 [project]
-description = "A common framework to analyse scNMT-seq data."
+description = "A common framework to analyse multi-modal single-cell data."
 dynamic = ["version"]
 name = "linkapy"
 authors = [
     {name = "Ward Deboutte", email = "w@rddeboutte.com"},
 ]
+readme = "README.md"
 requires-python = ">= 3.10, < 3.13"
 dependencies = [
     "anndata >= 0.11.1",
