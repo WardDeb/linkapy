@@ -255,14 +255,15 @@ class Linkapy_Parser:
                 self.logger.info(f"anndata object for \'{pattern}\' with shape {_adatas[-1].shape}")
         _cells = [_adatas.obs.index.tolist() for _adatas in _adatas]
         self.logger.info(f"{len(_adatas)} anndata objects in total.")
-        self.logger.info("Attempt to match cells across different anndata objects.")
-        renamed_obs, rename_df = match_cells(_cells, _patterns)
-        if renamed_obs:
-            self.logger.info("Matching of cells across anndata objects successfull.")
-            rename_df.to_csv(self.output / 'cell_renaming.tsv', sep='\t', index=False)
-            self.logger.info(f"Dataframe used to rename cells written to {str(self.output / 'cell_renaming.tsv')}.")
-            for new_obs, _ad in zip(renamed_obs, _adatas):
-                _ad.obs.index = new_obs
+        if len(_cells) > 1:
+            self.logger.info("Attempt to match cells across different anndata objects.")
+            renamed_obs, rename_df = match_cells(_cells, _patterns)
+            if renamed_obs:
+                self.logger.info("Matching of cells across anndata objects successfull.")
+                rename_df.to_csv(self.output / 'cell_renaming.tsv', sep='\t', index=False)
+                self.logger.info(f"Dataframe used to rename cells written to {str(self.output / 'cell_renaming.tsv')}.")
+                for new_obs, _ad in zip(renamed_obs, _adatas):
+                    _ad.obs.index = new_obs
         self.logger.info("Saving MuData object.")
         md.set_options(pull_on_update=False)
         mudata = md.MuData(
