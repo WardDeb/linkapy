@@ -175,16 +175,15 @@ class Linkapy_Parser:
         self.logger.info("Globbing files.")
         # If methylation_path is provided, there is at least one pattern (as per validate).
         # The asterisks are stripped form the patterns, and used as keys in a dictionary to keep the globs.
-        
+        self.transcriptome_files = {}
+        self.methylation_files = {}
         if self.methylation_path:
-            self.methylation_files = {}
             for pattern, name in zip(self.methylation_pattern, self.methylation_pattern_names):
                 _ = list(self.methylation_path.rglob(pattern))
                 assert any(_), f"No files found for pattern \'{pattern}\' in {self.methylation_path}"
                 self.methylation_files[name] = _
                 self.logger.info(f"Methylation search - pattern \'{pattern}\' - name \'{name}\' = {len(_)} files found.")
         if self.transcriptome_path:
-            self.transcriptome_files = {}
             for pattern in self.transcriptome_pattern:
                 _ = list(self.transcriptome_path.rglob(pattern))
                 assert any(_), f"No files found for pattern {pattern} in {self.transcriptome_path}"
@@ -255,14 +254,15 @@ class Linkapy_Parser:
                 self.logger.info(f"anndata object for \'{pattern}\' with shape {_adatas[-1].shape}")
         _cells = [_adatas.obs.index.tolist() for _adatas in _adatas]
         self.logger.info(f"{len(_adatas)} anndata objects in total.")
-        self.logger.info("Attempt to match cells across different anndata objects.")
-        renamed_obs, rename_df = match_cells(_cells, _patterns)
-        if renamed_obs:
-            self.logger.info("Matching of cells across anndata objects successfull.")
-            rename_df.to_csv(self.output / 'cell_renaming.tsv', sep='\t', index=False)
-            self.logger.info(f"Dataframe used to rename cells written to {str(self.output / 'cell_renaming.tsv')}.")
-            for new_obs, _ad in zip(renamed_obs, _adatas):
-                _ad.obs.index = new_obs
+        if len(_cells) > 1:
+            self.logger.info("Attempt to match cells across different anndata objects.")
+            renamed_obs, rename_df = match_cells(_cells, _patterns)
+            if renamed_obs:
+                self.logger.info("Matching of cells across anndata objects successfull.")
+                rename_df.to_csv(self.output / 'cell_renaming.tsv', sep='\t', index=False)
+                self.logger.info(f"Dataframe used to rename cells written to {str(self.output / 'cell_renaming.tsv')}.")
+                for new_obs, _ad in zip(renamed_obs, _adatas):
+                    _ad.obs.index = new_obs
         self.logger.info("Saving MuData object.")
         md.set_options(pull_on_update=False)
         mudata = md.MuData(
@@ -319,35 +319,33 @@ def read_rna_to_anndata(prefix) -> ad.AnnData:
     _meta = pl.read_ipc(prefix.with_name(prefix.name + "_meta.arrow"), memory_map=False).to_pandas()
     _meta.index = _meta['Geneid']
     del _meta['Geneid']
-    return ad.AnnData(
+    annd = ad.AnnData(
         X=sp.sparse.csr_matrix(_counts.values.T),
         obs=pd.DataFrame(index=list(_counts.columns)),
         var=_meta
     )
+    return annd[annd.obs.sort_index().index, :].copy()
 
 def read_meth_to_anndata(prefix) -> ad.AnnData:
     '''
-    From a prefix, read the methylation and coverage matrices, and their metadata, get the fractions and combine them into an AnnData object.
+    From a prefix, read the fraction matrices, and their metadata, and combine them into an AnnData object.
     '''
     np.seterr(divide='ignore', invalid='ignore')
-    methp = prefix.with_name(prefix.name + ".meth.mtx")
-    covp = prefix.with_name(prefix.name + ".cov.mtx")
+    methp = prefix.with_name(prefix.name + ".frac.mtx")
     cellp = prefix.with_name(prefix.name + ".cells.tsv")
     regp = prefix.with_name(prefix.name + ".regions.tsv")
-    _m = sp.io.mmread(methp).todense()
-    _c = sp.io.mmread(covp).todense()
-    X = np.zeros_like(_m, dtype=float)
-    X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
-    X = sp.sparse.csr_matrix(X)
+    X = sp.io.mmread(methp).tocsr()
+    
     _obs = pl.read_csv(cellp, separator='\t', has_header=False).to_pandas()
     _obs = pd.DataFrame(index=[Path(i).name.split('.')[0] for i in _obs['column_1']])
     _var = pl.read_csv(regp, separator='\t', has_header=True).to_pandas()
     _var.index = _var.index.astype(str)
-    return ad.AnnData(
+    annd = ad.AnnData(
         X=X,
         obs=_obs,
         var=_var
     )
+    return annd[annd.obs.sort_index().index, :].copy()
 
 def match_cells(_l: List[List[str]], patterns: List[str]) -> tuple[List[List[str]], pd.DataFrame]|tuple[None, None]:
     '''

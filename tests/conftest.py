@@ -1,6 +1,6 @@
 import pytest
-from pathlib import Path
 import gzip
+import numpy as np
 
 '''
 Create fixtures for testing.
@@ -20,10 +20,11 @@ There are 2 genes in total:
  - gene1: 0-100 bps
  - gene2: 200-250 bps
 
+Also includes some helper function to parse mudata objects.
 '''
 
 @pytest.fixture
-def methylation_files(tmp_path):
+def meth_path(tmp_path):
     '''
     simulate allcools.tsv.gz files
     tsv with columns chr, pos, strand, context, meth, cov and sign.
@@ -34,13 +35,13 @@ def methylation_files(tmp_path):
 
     # Cell 1 - avg. meth in gene 1 = 50%
     with gzip.open(methpath / "cell1.WCGN.tsv.gz", "wt") as f:
-        f.write('chr1\t20\t+\tTCGG\t25\t50\t1\n')
-        f.write('chr1\t50\t+\tACGT\t50\t100\t1\n')
+        f.write('chr1\t20\t+\tTCGG\t25\t100\t1\n')
+        f.write('chr1\t50\t+\tACGT\t75\t100\t1\n')
 
-    # Cell 2 - avg. meth in gene 2 = 75%
+    # Cell 2 - avg. meth in gene 2 = 62.5%
     with gzip.open(methpath / "cell2.WCGN.tsv.gz", "wt") as f:
-        f.write('chr1\t221\t+\tACGA\t75\t100\t1\n')
-        f.write('chr1\t244\t+\tACGA\t750\t1000\t1\n')
+        f.write('chr1\t221\t+\tACGA\t2\t4\t1\n')
+        f.write('chr1\t244\t+\tACGA\t12\t16\t1\n')
     
     # Cell 3 - avg. meth in gene 1 = 100%, avg. meth in gene 2 = 0%
     with gzip.open(methpath / "cell3.WCGN.tsv.gz", "wt") as f:
@@ -66,7 +67,7 @@ def methylation_files(tmp_path):
     return methpath
 
 @pytest.fixture
-def rna_files(tmp_path):
+def rna_path(tmp_path):
     '''
     simulate transcriptome.tsv files
     tsv with columns Geneid, Chr, Start, End, Strand, Length
@@ -89,7 +90,7 @@ def rna_files(tmp_path):
     return rnapath
 
 @pytest.fixture
-def bed_files(tmp_path):
+def bed_path(tmp_path):
     '''
     simulate regions.bed files
     '''
@@ -99,8 +100,14 @@ def bed_files(tmp_path):
     with open(bedpath / "gene1.bed", "w") as f:
         f.write('chr1\t0\t100\tgene1\t0\t+\n')
 
+    with gzip.open(bedpath / "gene1.bed.gz", "wt") as f:
+        f.write('chr1\t0\t100\tgene1\t0\t+\n')
+    
     # gene2: 200-250 bps
     with open(bedpath / "gene2.bed", "w") as f:
+        f.write('chr1\t200\t250\tgene2\t0\t+\n')
+
+    with gzip.open(bedpath / "gene2.bed.gz", "wt") as f:
         f.write('chr1\t200\t250\tgene2\t0\t+\n')
 
     # blacklist regions
@@ -114,3 +121,17 @@ def bed_files(tmp_path):
         f.write('chr1\t500\n')
 
     return bedpath
+
+def mu_to_dense(mu, var_name):
+    """
+    Takes a mu data object, and returns a dense matrix.
+    Instead of directly calling . mu[var_name].X.todense(),
+    this function retains distiction between NaN and 0 values.
+    """
+    if var_name not in mu.mod.keys():
+        raise ValueError(f"'{var_name}' not found in muData object.")
+    X = mu.mod[var_name].X
+    X = X.tocoo()
+    dense = np.full(X.shape, np.nan, dtype=X.dtype)
+    dense[X.row, X.col] = X.data
+    return dense
