@@ -12,6 +12,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+      - name: test_rustc_version
+        run: |
+          rustc --version
+          cargo --version
       - name: test
         run: |
           pip install .[dev]
