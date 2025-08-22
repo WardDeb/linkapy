@@ -88,7 +88,7 @@ pub fn parse_cools(
         (format!("\'keep_cool\': Starting pool with {} threads.", threads),)
     )?;
     // Metrics
-    let regvals: Vec<Vec<(f32, f32, f32)>> = pool.install(|| {
+    let aggregated_metrics: Vec<Vec<((f32, f32, f32), f32)>>  = pool.install(|| {
         coolfiles
             .par_iter()
             .map(|coolfile| {
@@ -96,7 +96,7 @@ pub fn parse_cools(
                 parsed_regions
                     .par_iter()
                     .map(|region| {
-                        let (meth_sum, total_sum , sites) = coolregions
+                        let filtered: Vec<&CoolRegion> = coolregions
                             .iter()
                             .filter(|x| {
                                 x.chrom == region.chrom 
@@ -108,6 +108,15 @@ pub fn parse_cools(
                                         })
                                     })
                             })
+                            .collect();
+
+                        let fractions: Vec<f32> = filtered
+                            .iter()
+                            .map(|x| x.meth as f32 / x.total as f32 ) // total will never be zero.
+                            .collect();
+
+                        let (meth_sum, total_sum, sites) = filtered
+                            .iter()
                             .fold((f32::NAN, f32::NAN, f32::NAN), |(meth_acc, total_acc, sites), x| {
                                 (
                                     if meth_acc.is_nan() { x.meth as f32 } else { meth_acc + x.meth as f32 },
@@ -115,12 +124,26 @@ pub fn parse_cools(
                                     if sites.is_nan() { 1.0 } else { sites + 1.0 },
                                 )
                             });
-                        (meth_sum, total_sum, sites)
+                        
+                        let mean_fraction = {
+                            let valid: Vec<f32> = fractions.into_iter().filter(|v| !v.is_nan()).collect();
+                            if !valid.is_empty() {
+                                valid.iter().sum::<f32>() / valid.len() as f32
+                            } else {
+                                f32::NAN
+                            }
+                        };
+
+                        ((meth_sum, total_sum, sites), mean_fraction)
                     })
             .collect()
             })
     .collect()
     });
+    
+    let regvals: Vec<Vec<(f32, f32, f32)>> = aggregated_metrics.iter().map(|v| v.iter().map(|(vals, _)| *vals).collect()).collect();
+    let fractions_vec: Vec<Vec<f32>> = aggregated_metrics.iter().map(|v| v.iter().map(|(_, fracs)| fracs.clone()).collect()).collect();
+    let fracm = frac_to_sparse(fractions_vec);
     let (methm, covm, sitem) = tupvec_to_sparse(regvals);
     logger.call_method1(
         "info",
@@ -130,11 +153,15 @@ pub fn parse_cools(
     let ometh = format!("{}.meth.mtx", prefix);
     let ocov = format!("{}.cov.mtx", prefix);
     let osite = format!("{}.site.mtx", prefix);
+    let ofrac = format!("{}.frac.mtx", prefix);
+
     let oregionfile: String = format!("{}.regions.tsv", prefix);
     let ocellfile: String = format!("{}.cells.tsv", prefix);
     write_matrix_market(ometh, &methm).unwrap();
     write_matrix_market(ocov, &covm).unwrap();
     write_matrix_market(osite, &sitem).unwrap();
+    write_matrix_market(ofrac, &fracm).unwrap();
+
     logger.call_method1(
         "info",
         (format!("\'keep_cool\': Finished writing matrices with prefix {}.", prefix),)
@@ -155,6 +182,22 @@ pub fn parse_cools(
     )?;
 
     Ok(())
+}
+
+fn frac_to_sparse(dense: Vec<Vec<f32>>) -> CsMat<f32> {
+    let max_row = dense.len();
+    let max_col = dense.iter().map(|row| row.len()).max().unwrap_or(0);
+
+    let mut mat = TriMat::new((max_row, max_col));
+
+    for (i, row) in dense.iter().enumerate() {
+        for (j, &v) in row.iter().enumerate() {
+            if !v.is_nan() {
+                mat.add_triplet(i, j, v);
+            }
+        }
+    }
+    mat.to_csr()
 }
 
 fn tupvec_to_sparse(dense: Vec<Vec<(f32, f32, f32)>>) -> (CsMat<f32>, CsMat<f32>, CsMat<f32>) {

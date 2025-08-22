@@ -327,22 +327,13 @@ def read_rna_to_anndata(prefix) -> ad.AnnData:
 
 def read_meth_to_anndata(prefix) -> ad.AnnData:
     '''
-    From a prefix, read the methylation and coverage matrices, and their metadata, get the fractions and combine them into an AnnData object.
+    From a prefix, read the fraction matrices, and their metadata, and combine them into an AnnData object.
     '''
     np.seterr(divide='ignore', invalid='ignore')
-    methp = prefix.with_name(prefix.name + ".meth.mtx")
-    covp = prefix.with_name(prefix.name + ".cov.mtx")
+    methp = prefix.with_name(prefix.name + ".frac.mtx")
     cellp = prefix.with_name(prefix.name + ".cells.tsv")
     regp = prefix.with_name(prefix.name + ".regions.tsv")
-    _m = sp.io.mmread(methp).tocsr()
-    _c = sp.io.mmread(covp).tocsr()
-    # assert shapes and values are equal
-    assert _m.shape == _c.shape, f"Methylation and coverage matrices have different shapes: {_m.shape} vs {_c.shape}"
-    assert all(_m.indptr == _c.indptr), f"Methylation and coverage matrices have values at different positions. {_m.indptr} vs {_c.indptr}"
-    X = sp.sparse.csr_matrix(
-        (_m.data / _c.data, _m.indices, _m.indptr),
-        shape=_m.shape
-    )
+    X = sp.io.mmread(methp).tocsr()
     
     _obs = pl.read_csv(cellp, separator='\t', has_header=False).to_pandas()
     _obs = pd.DataFrame(index=[Path(i).name.split('.')[0] for i in _obs['column_1']])
