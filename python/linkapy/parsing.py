@@ -175,16 +175,15 @@ class Linkapy_Parser:
         self.logger.info("Globbing files.")
         # If methylation_path is provided, there is at least one pattern (as per validate).
         # The asterisks are stripped form the patterns, and used as keys in a dictionary to keep the globs.
-        
+        self.transcriptome_files = {}
+        self.methylation_files = {}
         if self.methylation_path:
-            self.methylation_files = {}
             for pattern, name in zip(self.methylation_pattern, self.methylation_pattern_names):
                 _ = list(self.methylation_path.rglob(pattern))
                 assert any(_), f"No files found for pattern \'{pattern}\' in {self.methylation_path}"
                 self.methylation_files[name] = _
                 self.logger.info(f"Methylation search - pattern \'{pattern}\' - name \'{name}\' = {len(_)} files found.")
         if self.transcriptome_path:
-            self.transcriptome_files = {}
             for pattern in self.transcriptome_pattern:
                 _ = list(self.transcriptome_path.rglob(pattern))
                 assert any(_), f"No files found for pattern {pattern} in {self.transcriptome_path}"
