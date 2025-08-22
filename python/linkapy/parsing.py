@@ -334,11 +334,16 @@ def read_meth_to_anndata(prefix) -> ad.AnnData:
     covp = prefix.with_name(prefix.name + ".cov.mtx")
     cellp = prefix.with_name(prefix.name + ".cells.tsv")
     regp = prefix.with_name(prefix.name + ".regions.tsv")
-    _m = sp.io.mmread(methp).todense()
-    _c = sp.io.mmread(covp).todense()
-    X = np.zeros_like(_m, dtype=float)
-    X = np.where((_c != 0) & (_m != 0), _m / _c, 0)
-    X = sp.sparse.csr_matrix(X)
+    _m = sp.io.mmread(methp).tocsr()
+    _c = sp.io.mmread(covp).tocsr()
+    # assert shapes and values are equal
+    assert _m.shape == _c.shape, f"Methylation and coverage matrices have different shapes: {_m.shape} vs {_c.shape}"
+    assert all(_m.indptr == _c.indptr), f"Methylation and coverage matrices have values at different positions. {_m.indptr} vs {_c.indptr}"
+    X = sp.sparse.csr_matrix(
+        (_m.data / _c.data, _m.indices, _m.indptr),
+        shape=_m.shape
+    )
+    
     _obs = pl.read_csv(cellp, separator='\t', has_header=False).to_pandas()
     _obs = pd.DataFrame(index=[Path(i).name.split('.')[0] for i in _obs['column_1']])
     _var = pl.read_csv(regp, separator='\t', has_header=True).to_pandas()
