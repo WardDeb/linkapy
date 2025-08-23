@@ -17,4 +17,4 @@ jobs:
           pip install .[dev]
       - name: run tests
         run: |
-          pytest -v
+          pytest -v --cov=linkapy
