@@ -30,7 +30,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "ruff",
-    "pytest"
+    "pytest",
+    "pytest-cov"
 ]
 docs = [
     "sphinx",
